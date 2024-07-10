@@ -1,7 +1,9 @@
 #!/bin/env python3
 
+from typing import Callable
 import hashlib
 import os
+import random
 import subprocess
 import sys
 import yaml
@@ -30,6 +32,8 @@ __baseErrMsg = '環境設定文件格式不正確.'
 __fieldOfString = {'name', 'image', 'user'}
 __fieldOfBoolean = {'dock'}
 __fieldOfArray = {'volume', 'rc'}
+
+__randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
 
 def main():
@@ -126,8 +130,8 @@ def __matchProcess(
 
     return (
         __listGroupDetails if action == 'List'
-        else __listHostOpt if groupListName == 'hosts'
-        else __listDockerRunOpt
+        else __listHostCmd if groupListName == 'hosts'
+        else __listDockerRunCmd
     )(instanceId, basePath, info)
 
 
@@ -201,19 +205,22 @@ def __getGroupDetails(
         if errMsg is not None:
             return 1, f'{__baseErrMsg} ({instanceId} 的 {errMsg})'
 
-    # 在 dockers 的 instance 中設定 `vmHome` 欄位.
     vmHome = ''
     if instanceListName == 'dockers':
         if 'image' not in newInfo:
             return 1, f'{__baseErrMsg} ({instanceId} 找不到指定映像文件)'
 
+        # 在 dockers 的 instance 中設定 `vmHome` 欄位.
         if 'vmHome' not in newInfo:
             vmHome = __getDockerContainerHomePath(
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
-
             newInfo['vmHome'] = {'value': vmHome, 'from': 'via container'}
+
+        # 如果有 `name` 欄位則會自動產生或覆寫 `hostname` 欄位.
+        if 'name' in newInfo:
+            newInfo['hostname'] = newInfo['name']
 
     elif instanceListName == 'hosts':
         if not ('volume' in newInfo or 'rc' in newInfo):
@@ -356,6 +363,26 @@ def __getDockerContainerHomePath(
     return containerHome
 
 
+def __getRcTxt(
+    rcInfo: list, isPersist: bool = False
+) -> tuple[str, str, Callable[[], None]]:
+    nodePath = __hostHome if isPersist else '/tmp'
+
+    rcLines = [item['value'] for item in rcInfo]
+    rcTxt = '\n'.join(rcLines)
+    hashCode = hashlib.sha256(rcTxt.encode()).hexdigest()[:7]
+
+    rcFileName = f'.bashrc_ysenv_{hashCode}'
+    rcFilePath = f'{nodePath}/{rcFileName}'
+
+    def createRcTxt():
+        if not os.path.exists(rcFilePath):
+            with open(rcFilePath, 'w', encoding='utf-8') as fs:
+                fs.write(rcTxt)
+
+    return rcFileName, rcFilePath, createRcTxt
+
+
 def __listGroupDetails(
     instanceId: str,
     basePath: str,
@@ -437,20 +464,97 @@ def __listGroupDetails(
     return 0, '\n'.join(showMsgs)
 
 
-def __listHostOpt(
+def __listHostCmd(
     instanceId: str,
     basePath: str,
     info: dict,
 ) -> tuple[int, str]:
-    return 0, ''
+    exitCode = 0
+    cmdLines = []
+    warnLines = []
+
+    if 'volume' in info:
+        for item in info['volume']:
+            hostPath = item['hostPath']
+            vmPath = item['vmPath']
+
+            if not os.path.exists(vmPath) or os.path.islink(vmPath):
+                cmdLines += [f'ln -sf {hostPath!r} {vmPath!r}']
+            else:
+                exitCode = 1
+                warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
+
+    isHasRcField = 'rc' in info
+    if isHasRcField:
+        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
+
+    tmpFileNames = os.listdir(__hostHome)
+    for tmpFileName in tmpFileNames:
+        if not tmpFileName.startswith('.bashrc_ysenv_'):
+            continue
+
+        if isHasRcField and tmpFileName == rcFileName:
+            continue
+
+        exitCode = 1
+        warnLines += [f'echo "請執行 \\`rm {__hostHome}/{tmpFileName}\\`"']
+
+    if exitCode == 0 and isHasRcField:
+        createRcTxt()
+        cmdLines += [f'echo "請執行 \\`source {rcFilePath!r}\\`"']
+
+    # 因為警告也是以 bash 輸出, 使用標準輸出才能配合 `sh <(...)`
+    return 0, '\n'.join(
+        cmdLines if exitCode == 0 else warnLines
+    )
 
 
-def __listDockerRunOpt(
+def __listDockerRunCmd(
     instanceId: str,
     basePath: str,
     info: dict,
 ) -> tuple[int, str]:
-    return 0, ''
+    cmdList = ['docker', 'run']
+    skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
+    vmHome = info['vmHome']['value']
+
+    if 'notOnce' not in info or info['notOnce']['value'] is not True:
+        cmdList += ['--rm']
+
+    # 自動設定 `name`, `hostname`
+    vmName = ''.join(random.choices(__randList26, k=7)) + '-vm'
+    if 'name' not in info:
+        cmdList += ['--name', vmName]
+    if 'hostname' not in info:
+        cmdList += ['--hostname', vmName]
+
+    for key, val in info.items():
+        if key in skipList:
+            continue
+
+        if isinstance(val, list):
+            for subVal in val:
+                cmdList += [f'--{key}', subVal['value']]
+        else:
+            cmdList += [f'--{key}']
+            value = val['value']
+            if not isinstance(value, bool):
+                cmdList += [value]
+
+    if 'volume' in info:
+        for item in info['volume']:
+            volumeOpt = f'{item['hostPath']}:{item['vmPath']}'
+            permission = item['permission']
+            if permission != '':
+                volumeOpt += f':{permission}'
+            cmdList += ['--volume', volumeOpt]
+
+    if 'rc' in info:
+        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
+        createRcTxt()
+        cmdList += ['--volume', f'{rcFilePath}:{vmHome}/{rcFileName}']
+
+    return 0, ' '.join(cmdList)
 
 
 def sysPrintExit(exitCode: int, txt: str):
