@@ -29,8 +29,8 @@ __hostHome = os.environ['HOME']
 
 __baseErrMsg = '環境設定文件格式不正確.'
 
-__fieldOfString = {'name', 'image', 'user'}
-__fieldOfBoolean = {'dock'}
+__fieldOfString = {'name', 'image'}
+__fieldOfBoolean = {'notOnce', 'dock'}
 __fieldOfArray = {'volume', 'rc'}
 __allowArgvOverwriteField = __fieldOfString
 
@@ -596,7 +596,7 @@ def __listDockerRunCmd(
     carryCmd: list,
 ) -> tuple[int, str]:
     cmdList = ['docker', 'run']
-    skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
+    skipList = {'image', 'vmHome', 'notOnce', 'dock', 'volume', 'rc'}
     vmHome = info['vmHome']['value']
     image = info['image']['value']
 
@@ -609,6 +609,8 @@ def __listDockerRunCmd(
         cmdList += ['--name', vmName]
     if 'hostname' not in info:
         cmdList += ['--hostname', vmName]
+
+    cmdList += ['--volume', f'{ysPath}:{vmHome}/ys']
 
     for key, val in info.items():
         if key in skipList:
@@ -635,6 +637,9 @@ def __listDockerRunCmd(
         rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
         createRcTxt()
         cmdList += ['--volume', f'{rcFilePath}:{vmHome}/{rcFileName}']
+
+    if 'dock' in info and info['dock']['value'] is True:
+        cmdList += ['--volume', '/var/run/docker.sock:/var/run/docker.sock:ro']
 
     cmdList += carryOpt
 
