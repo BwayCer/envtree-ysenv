@@ -247,12 +247,10 @@ def __mergeGroup(info: dict, srcId: str, src: dict) -> [None | str]:
         if key in skipList:
             pass
         elif key in __fieldOfString:
-            if isinstance(val, str):
-                info[key] = {'value': f'{val}', 'from': srcId}
-                if val.strip() == '':
-                    return f'"{key}" 欄位不得為空值.'
-            else:
-                return errMsg.format(key, 'String')
+            val = str(val)
+            info[key] = {'value': f'{val}', 'from': srcId}
+            if val.strip() == '':
+                return f'"{key}" 欄位不得為空值.'
         elif key in __fieldOfBoolean:
             if isinstance(val, bool):
                 info[key] = {'value': val, 'from': srcId}
@@ -271,7 +269,8 @@ def __mergeGroup(info: dict, srcId: str, src: dict) -> [None | str]:
             else:
                 return errMsg.format(key, 'Array')
         else:
-            if key in info and isinstance(key, type(info[key].value)):
+            keyType = type(val)
+            if key in info and keyType is not type(info[key].value):
                 return f'"{key}" 欄位前後格式不一'
 
             if __isList(val) and key in info and __isList(info[key]):
