@@ -17,8 +17,8 @@ helpTxt = '''\
 環境設定文件解析器
 Usage:
     edit
-    <host|docker> --list
-    <host|docker> [實例] --list
+    list <host|docker>
+    list <host|docker> [實例] [... docker opt]
     host <實例>
     docker <實例>
 Opt:
@@ -32,6 +32,7 @@ __baseErrMsg = '環境設定文件格式不正確.'
 __fieldOfString = {'name', 'image', 'user'}
 __fieldOfBoolean = {'dock'}
 __fieldOfArray = {'volume', 'rc'}
+__allowArgvOverwriteField = __fieldOfString
 
 __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
@@ -39,12 +40,12 @@ __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 def main():
     envConfigPath = pathJoin(_fileDir, './config.yaml')
 
-    action, groups, instance = __parseCmdArgv(_origArgv)
+    action, groups, instance, dockerOptStratIndex = __parseCmdArgv(_origArgv)
 
     if action == 'Help' or action == 'NeedHelp':
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
-    if action == 'edit':
+    if action == 'Edit':
         sysPrintExit(0, f'vi {envConfigPath!r}')
     elif not os.path.exists(envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
@@ -53,37 +54,98 @@ def main():
     if exitCode != 0:
         sysPrintExit(exitCode, envConfig)
 
-    exitCode, txt = __matchProcess(envConfig, action, groups, instance)
+    argvGroup, carryOpt, carryCmd \
+        = __parseCmdArgvForCarryOpt(_origArgv, dockerOptStratIndex)
+    exitCode, txt = __matchProcess(
+        envConfig,
+        action, groups, instance,
+        argvGroup, carryOpt, carryCmd,
+    )
     sysPrintExit(exitCode, txt)
 
 
-def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str]:
+def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
     isNeedHelp = True
-    argvLength = len(argv)
     action = ''
     groups = ''
     instance = ''
-    if '-h' in argv or '--help' in argv:
+    nextIdx = 1
+
+    argv_ = argv
+    if '--' in argv:
+        argv_ = argv[:argv.index('--')]
+
+    argvLength = len(argv_)
+    if '-h' in argv_ or '--help' in argv_:
         action = 'Help'
-    elif argvLength > 1:
-        match argv[1]:
-            case 'edit':
-                isNeedHelp = False
-                action = 'edit'
-            case 'host' | 'docker' if 2 < argvLength < 5 and argv[2] != '':
-                isNeedHelp = False
+    elif argvLength == 1 and argv_[1] == 'edit':
+        nextIdx += 1
+        isNeedHelp = False
+        action = 'Edit'
+    elif argvLength > 2:
+        isListSubCmd = False
+        isHasInstance = False
+        if argv_[1] == 'list':
+            isListSubCmd = True
+            nextIdx += 1
 
-                isHasOptList = argv[argvLength - 1] == '--list'
-                action = 'List' if isHasOptList else 'Build'
+        if argvLength > nextIdx + 1:
+            instance_ = argv_[nextIdx + 1]
+            if not (instance_ == '' or instance_.startswith('-')):
+                isHasInstance = True
 
-                groups = argv[1] + 's'
-                if not argv[2].startswith('--'):
-                    instance = argv[2]
+        groups_ = argv_[nextIdx]
+        match groups_:
+            case 'host' | 'docker' if isListSubCmd or isHasInstance:
+                isNeedHelp = False
+                nextIdx += 1
+                action = 'List' if isListSubCmd else 'Build'
+                groups = groups_ + 's'
+
+                if isHasInstance:
+                    nextIdx += 1
+                    instance = instance_
 
     if isNeedHelp:
         action = 'NeedHelp'
 
-    return action, groups, instance
+    return action, groups, instance, nextIdx
+
+
+def __parseCmdArgvForCarryOpt(
+    argv: tuple[str, ...],
+    startIdx: int,
+) -> tuple[dict, list, list]:
+    idx = startIdx
+    length = len(argv)
+
+    argvGroup = {}
+    carryOpt = []
+    carryCmd = []
+    while idx < length:
+        item = argv[idx]
+        if item == '--':
+            carryCmd += argv[idx + 1:length]
+            break
+        elif item.startswith('-'):
+            if argv[idx + 1].startswith('-'):
+                carryOpt.append(item)
+            else:
+                idx += 1
+                value = argv[idx]
+
+                itemKey = item.lstrip('-')
+                if itemKey in __allowArgvOverwriteField:
+                    argvGroup[itemKey] = value
+                else:
+                    carryOpt += [item, value]
+
+            idx += 1
+        else:
+            carryCmd += argv[idx:length]
+            break
+
+    return argvGroup, carryOpt, carryCmd
 
 
 def loadConfig(filePath: str) -> tuple[int, str]:
@@ -102,6 +164,9 @@ def __matchProcess(
     action: str,
     groupListName: str,
     instanceName: str,
+    argvGroup: dict,
+    carryOpt: list,
+    carryCmd: list,
 ) -> tuple[int, str]:
     errMsg = __checkEnvConfigXxBase(envConfig)
     if errMsg is not None:
@@ -121,7 +186,7 @@ def __matchProcess(
 
     instanceId = f'{groupListName}.{instanceName}'
     exitCode, info \
-        = __getGroupDetails(envConfig, groupListName, instanceName)
+        = __getGroupDetails(envConfig, groupListName, instanceName, argvGroup)
     if exitCode != 0:
         return 1, info
 
@@ -132,7 +197,7 @@ def __matchProcess(
         __listGroupDetails if action == 'List'
         else __listHostCmd if groupListName == 'hosts'
         else __listDockerRunCmd
-    )(instanceId, ysPath, info)
+    )(instanceId, ysPath, info, carryOpt, carryCmd)
 
 
 def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
@@ -171,6 +236,7 @@ def __getGroupDetails(
     envConfig: dict,
     instanceListName: str,
     instanceName: str,
+    argvGroup: dict,
 ) -> tuple[int, [str | dict]]:
     groupParts = envConfig['groupParts']
     instance = envConfig[instanceListName][instanceName]
@@ -192,6 +258,8 @@ def __getGroupDetails(
             + [['instance', instance]]
     else:
         mergeItems = [['instance', instance]]
+
+    mergeItems += [['argv', argvGroup]]
 
     newInfo = {}
     for item in mergeItems:
@@ -386,6 +454,8 @@ def __listGroupDetails(
     instanceId: str,
     ysPath: str,
     info: dict,
+    carryOpt: list,
+    carryCmd: list,
 ) -> tuple[int, str]:
     skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
     isDocker = instanceId.startswith('dockers.')
@@ -397,6 +467,14 @@ def __listGroupDetails(
             f'{key}: {info[key]['value']}   (by {info[key]['from']})'
             for key in ['vmHome', 'image']
         ]
+
+        if len(carryOpt):
+            showMsgs += \
+                ['carryOpt: ' + ' '.join([f'{item!r}' for item in carryOpt])]
+        if len(carryCmd):
+            showMsgs += \
+                ['carryCmd: ' + ' '.join([f'{item!r}' for item in carryCmd])]
+
         showMsgs += ['']
 
     if isDocker:
@@ -467,6 +545,8 @@ def __listHostCmd(
     instanceId: str,
     ysPath: str,
     info: dict,
+    carryOpt: list,
+    carryCmd: list,
 ) -> tuple[int, str]:
     exitCode = 0
     cmdLines = []
@@ -512,10 +592,13 @@ def __listDockerRunCmd(
     instanceId: str,
     ysPath: str,
     info: dict,
+    carryOpt: list,
+    carryCmd: list,
 ) -> tuple[int, str]:
     cmdList = ['docker', 'run']
     skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
     vmHome = info['vmHome']['value']
+    image = info['image']['value']
 
     if 'notOnce' not in info or info['notOnce']['value'] is not True:
         cmdList += ['--rm']
@@ -552,6 +635,12 @@ def __listDockerRunCmd(
         rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
         createRcTxt()
         cmdList += ['--volume', f'{rcFilePath}:{vmHome}/{rcFileName}']
+
+    cmdList += carryOpt
+
+    cmdList += [image]
+
+    cmdList += carryCmd
 
     return 0, ' '.join(cmdList)
 
