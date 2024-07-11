@@ -1,6 +1,6 @@
 ---
 # 用戶文件根目錄. (把文件放於同一目錄下, 以鏈結的方式建立環境)
-basePath: ~/ys
+ysPath: ~/ys
 groupParts:
   <自定義名稱>:
     volume:

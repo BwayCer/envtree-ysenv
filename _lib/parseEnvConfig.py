@@ -9,7 +9,7 @@ import sys
 import yaml
 
 
-_origArgs = sys.argv
+_origArgv = sys.argv
 _fileDir = os.path.dirname(os.path.abspath(__file__))
 _filename = os.path.basename(__file__)
 
@@ -39,7 +39,7 @@ __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 def main():
     envConfigPath = pathJoin(_fileDir, './config.yaml')
 
-    action, groups, instance = __parseCmdArgs(_origArgs)
+    action, groups, instance = __parseCmdArgv(_origArgv)
 
     if action == 'Help' or action == 'NeedHelp':
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
@@ -57,28 +57,28 @@ def main():
     sysPrintExit(exitCode, txt)
 
 
-def __parseCmdArgs(cmdArgs: tuple[str, ...]) -> tuple[str, str, str]:
+def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str]:
     isNeedHelp = True
-    argsLength = len(cmdArgs)
+    argvLength = len(argv)
     action = ''
     groups = ''
     instance = ''
-    if '-h' in cmdArgs or '--help' in cmdArgs:
+    if '-h' in argv or '--help' in argv:
         action = 'Help'
-    elif argsLength > 1:
-        match cmdArgs[1]:
+    elif argvLength > 1:
+        match argv[1]:
             case 'edit':
                 isNeedHelp = False
                 action = 'edit'
-            case 'host' | 'docker' if 2 < argsLength < 5 and cmdArgs[2] != '':
+            case 'host' | 'docker' if 2 < argvLength < 5 and argv[2] != '':
                 isNeedHelp = False
 
-                isHasOptList = cmdArgs[argsLength - 1] == '--list'
+                isHasOptList = argv[argvLength - 1] == '--list'
                 action = 'List' if isHasOptList else 'Build'
 
-                groups = cmdArgs[1] + 's'
-                if not cmdArgs[2].startswith('--'):
-                    instance = cmdArgs[2]
+                groups = argv[1] + 's'
+                if not argv[2].startswith('--'):
+                    instance = argv[2]
 
     if isNeedHelp:
         action = 'NeedHelp'
@@ -126,18 +126,18 @@ def __matchProcess(
         return 1, info
 
     # `os.path.expanduser()` 只接受 `~` 無法辨別 `$HOME`.
-    basePath = os.path.expanduser(envConfig['basePath'])
+    ysPath = os.path.expanduser(envConfig['ysPath'])
 
     return (
         __listGroupDetails if action == 'List'
         else __listHostCmd if groupListName == 'hosts'
         else __listDockerRunCmd
-    )(instanceId, basePath, info)
+    )(instanceId, ysPath, info)
 
 
 def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
     level01Type = {
-        'basePath': str,
+        'ysPath': str,
         'groupParts': dict,
         'hosts': dict,
         'dockers': dict,
@@ -385,13 +385,13 @@ def __getRcTxt(
 
 def __listGroupDetails(
     instanceId: str,
-    basePath: str,
+    ysPath: str,
     info: dict,
 ) -> tuple[int, str]:
     skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
     isDocker = instanceId.startswith('dockers.')
 
-    showMsgs = [f'basePath: {basePath}']
+    showMsgs = [f'ysPath: {ysPath}']
 
     if isDocker:
         showMsgs += [
@@ -466,7 +466,7 @@ def __listGroupDetails(
 
 def __listHostCmd(
     instanceId: str,
-    basePath: str,
+    ysPath: str,
     info: dict,
 ) -> tuple[int, str]:
     exitCode = 0
@@ -511,7 +511,7 @@ def __listHostCmd(
 
 def __listDockerRunCmd(
     instanceId: str,
-    basePath: str,
+    ysPath: str,
     info: dict,
 ) -> tuple[int, str]:
     cmdList = ['docker', 'run']
