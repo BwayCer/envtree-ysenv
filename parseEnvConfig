@@ -489,6 +489,9 @@ def __listGroupDetails(
             else f'  #notOnce   (by {info['notOnce']['from']})'
         ]
 
+        if '-it' not in carryOpt:
+            showMsgs += ['  -it   (by default)']
+
         for key, val in info.items():
             if key in skipList:
                 continue
@@ -603,8 +606,14 @@ def __listDockerRunCmd(
     vmHome = info['vmHome']['value']
     image = info['image']['value']
 
-    if 'notOnce' not in info or info['notOnce']['value'] is not True:
+    if (
+        ('notOnce' not in info or info['notOnce']['value'] is not True)
+        and '--rm' not in carryOpt
+    ):
         cmdList += ['--rm']
+
+    if '-it' not in carryOpt:
+        cmdList += ['-it']
 
     # 自動設定 `name`, `hostname`
     vmName = ''.join(random.choices(__randList26, k=7)) + '-vm'
