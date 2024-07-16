@@ -26,10 +26,11 @@ Opt:
 '''
 
 __hostHome = os.environ['HOME']
+__pwd = os.environ['PWD']
 
 __baseErrMsg = '環境設定文件格式不正確.'
 
-__fieldOfString = {'name', 'image'}
+__fieldOfString = {'name', 'image', 'vmHome', 'workdir'}
 __fieldOfBoolean = {'notOnce', 'dock'}
 __fieldOfArray = {'volume', 'rc'}
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
@@ -187,14 +188,14 @@ def __matchProcess(
             f'找不到 "{instanceName}" 實例. (允許值: {", ".join(groupsKeys)})'
         )
 
-    instanceId = f'{groupListName}.{instanceName}'
-    exitCode, info \
-        = __getGroupDetails(envConfig, groupListName, instanceName, argvGroup)
-    if exitCode != 0:
-        return 1, info
-
     # `os.path.expanduser()` 只接受 `~` 無法辨別 `$HOME`.
     ysPath = os.path.expanduser(envConfig['ysPath'])
+
+    instanceId = f'{groupListName}.{instanceName}'
+    exitCode, info \
+        = __getGroupDetails(ysPath, envConfig, groupListName, instanceName, argvGroup)
+    if exitCode != 0:
+        return 1, info
 
     return (
         __listGroupDetails if action == 'List'
@@ -236,6 +237,7 @@ def __checkEnvConfigXxMergeGroupParts(
 
 
 def __getGroupDetails(
+    ysPath: str,
     envConfig: dict,
     instanceListName: str,
     instanceName: str,
@@ -288,6 +290,11 @@ def __getGroupDetails(
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
             newInfo['vmHome'] = {'value': vmHome, 'from': 'via container'}
+
+        cwdDir = __pwd + os.path.sep
+        ysDir = ysPath + os.path.sep
+        if 'workdir' not in newInfo and cwdDir.startswith(ysDir):
+            newInfo['workdir'] = {'value': __pwd, 'from': 'default'}
 
         # 如果有 `name` 欄位則會自動產生或覆寫 `hostname` 欄位.
         if 'name' in newInfo:
@@ -460,15 +467,18 @@ def __listGroupDetails(
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
+    skipList = {'image', 'vmHome', 'workdir', 'notOnce', 'volume', 'rc'}
     isDocker = instanceId.startswith('dockers.')
 
-    showMsgs = [f'ysPath: {ysPath}']
+    showMsgs = [f'ysPath : {ysPath}']
 
     if isDocker:
         showMsgs += [
+            f'{key:7s}: {info[key]['value']}   (by {info[key]['from']})'
+            for key in ['vmHome', 'workdir']
+        ] + [
             f'{key}: {info[key]['value']}   (by {info[key]['from']})'
-            for key in ['vmHome', 'image']
+            for key in ['image']
         ]
 
         if len(carryOpt):
@@ -603,7 +613,6 @@ def __listDockerRunCmd(
 ) -> tuple[int, str]:
     cmdList = ['docker', 'run']
     skipList = {'image', 'vmHome', 'notOnce', 'dock', 'volume', 'rc'}
-    vmHome = info['vmHome']['value']
     image = info['image']['value']
 
     if (
@@ -622,8 +631,6 @@ def __listDockerRunCmd(
     if 'hostname' not in info:
         cmdList += ['--hostname', vmName]
 
-    cmdList += ['--volume', f'{ysPath}:{vmHome}/ys']
-
     for key, val in info.items():
         if key in skipList:
             continue
@@ -637,21 +644,9 @@ def __listDockerRunCmd(
             if not isinstance(value, bool):
                 cmdList += [value]
 
-    if 'volume' in info:
-        for item in info['volume']:
-            volumeOpt = f'{item['hostPath']}:{item['vmPath']}'
-            permission = item['permission']
-            if permission != '':
-                volumeOpt += f':{permission}'
-            cmdList += ['--volume', volumeOpt]
-
-    if 'rc' in info:
-        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
-        createRcTxt()
-        cmdList += ['--volume', f'{rcFilePath}:{vmHome}/{rcFileName}']
-
-    if 'dock' in info and info['dock']['value'] is True:
-        cmdList += ['--volume', '/var/run/docker.sock:/var/run/docker.sock:ro']
+    volumeList = __getDockerRunVolumeList(ysPath, info)
+    for item in volumeList:
+        cmdList += ['--volume', item]
 
     cmdList += carryOpt
 
@@ -660,6 +655,30 @@ def __listDockerRunCmd(
     cmdList += carryCmd
 
     return 0, ' '.join(cmdList)
+
+
+def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
+    vmHome = info['vmHome']['value']
+    volumeList = []
+
+    if 'volume' in info:
+        for item in info['volume']:
+            volumeOpt = f'{item['hostPath']}:{item['vmPath']}'
+            permission = item['permission']
+            if permission != '':
+                volumeOpt += f':{permission}'
+            volumeList += [volumeOpt]
+
+    if 'rc' in info:
+        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'])
+        createRcTxt()
+        volumeList += [f'{rcFilePath}:{vmHome}/{rcFileName}']
+
+    if 'dock' in info and info['dock']['value'] is True:
+        volumeList += ['/var/run/docker.sock:/var/run/docker.sock:ro']
+
+    volumeList += [f'{ysPath}:{ysPath}']
+    return volumeList
 
 
 def sysPrintExit(exitCode: int, txt: str):
