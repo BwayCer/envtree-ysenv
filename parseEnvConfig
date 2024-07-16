@@ -79,7 +79,7 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
     argvLength = len(argv_)
     if '-h' in argv_ or '--help' in argv_:
         action = 'Help'
-    elif argvLength == 1 and argv_[1] == 'edit':
+    elif argvLength == 2 and argv_[1] == 'edit':
         nextIdx += 1
         isNeedHelp = False
         action = 'Edit'
