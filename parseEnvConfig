@@ -569,12 +569,18 @@ def __listHostCmd(
     warnLines = []
 
     if 'volume' in info:
+        newCreateDir = []
         for item in info['volume']:
             hostPath = item['hostPath']
             vmPath = item['vmPath']
 
+            vmDir = os.path.dirname(vmPath)
+            if not os.path.exists(vmDir) and vmDir not in newCreateDir:
+                cmdLines += [f'mkdir -p {vmDir!r}']
+                newCreateDir.append(vmDir)
+
             if not os.path.exists(vmPath) or os.path.islink(vmPath):
-                cmdLines += [f'ln -sf {hostPath!r} {vmPath!r}']
+                cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
             else:
                 exitCode = 1
                 warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
