@@ -658,7 +658,8 @@ def __listDockerRunCmd(
 
     cmdList += [image]
 
-    cmdList += carryCmd
+    if len(carryCmd) > 0:
+        cmdList += carryCmd
 
     return 0, ' '.join(cmdList)
 
