@@ -684,6 +684,11 @@ def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
         volumeList += ['/var/run/docker.sock:/var/run/docker.sock:ro']
 
     volumeList += [f'{ysPath}:{ysPath}']
+
+    ysRealPath = os.path.realpath(ysPath)
+    if ysPath != ysRealPath:
+        volumeList += [f'{ysRealPath}:{ysRealPath}']
+
     return volumeList
 
 
