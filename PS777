@@ -34,7 +34,55 @@ PS777() {
   local _fCyaB="\033[36;01m"
   local _fCyaW="\033[37;01m"
 
-  printf "${_fGreB}%s@%s${_fN}:${_fCyaB}%s${_fN}" "$ps1_u" "$ps1_h" "$ps1_w"
+  printf "${_fGreB}%s@%s${_fN}" "$ps1_u" "$ps1_h"
+
+  local showPathStart=""
+  local showPathMiddle=""
+  local showPath="$ps1_w"
+  PS777_fnAutoPathSize() {
+    local idx len
+
+    # $COLUMNS == `tput cols`
+    local diffSize=$((${#showPath} - (COLUMNS * 3 / 7)))
+
+    ## 原路徑顯示: 路徑長度小於終端顯示寬的一半
+    [ $diffSize -gt 0 ] || return
+
+    # 將路徑分割成各個目錄
+    local pathParts
+    IFS='/' read -ra pathParts <<< "$showPath"
+
+    ## 以忽略符顯示: 目錄數*4 仍大於終端顯示寬的一半
+    [ $((${#showPath} - ${#pathParts[-1]} - (${#pathParts[@]} - 1) * 4)) \
+      -ge $diffSize \
+    ] || {
+      showPathStart="${pathParts[0]}/${pathParts[1]}/";
+      showPathMiddle="...";
+      showPath="/${pathParts[-1]}";
+      return;
+    }
+
+    ## 以略縮目錄 `xxx>` 顯示
+    # 前兩個目錄和最後一個目錄是固定的
+    showPathStart="${pathParts[0]}/${pathParts[1]}/"
+    showPath=""
+    for ((idx=2, len=(${#pathParts[@]} - 1); idx < len; idx++)); do
+      if [ $diffSize -gt 0 ]; then
+        if [ ${#pathParts[idx]} -gt 3 ]; then
+          ((diffSize-= ${#pathParts[idx]} - 4))
+          showPathMiddle+="${pathParts[idx]:0:3}>"
+        else
+          showPathMiddle+="${pathParts[idx]}/"
+        fi
+      else
+        showPath+="${pathParts[idx]}/"
+      fi
+    done
+    showPath+="${pathParts[-1]}"
+  }
+  PS777_fnAutoPathSize
+  printf ":${_fCyaB}%s${_fN}\033[36m%s${_fCyaB}%s${_fN}" \
+    "$showPathStart" "$showPathMiddle" "$showPath"
 
   # exitCode
   [ $exitCode -eq 0 ] || printf " ${_fRedB}(exit:$exitCode)${_fN}"
@@ -81,7 +129,10 @@ PS777() {
     printf " (spend:%ds)" $PS777_tmpVarCmdDuration
   fi
 
-  printf '\n$ '
+  # shell 層數
+  [ "$SHLVL" -ge 2 ] &&
+    printf "\\nL$SHLVL\$ " ||
+    printf '\n$ '
 }
 
 PS777_fnCmdTimeit() {
