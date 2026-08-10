@@ -644,18 +644,18 @@ def __listDockerRunCmd(
 
         if isinstance(val, list):
             for subVal in val:
-                cmdList += [f'--{key}', subVal['value']]
+                cmdList += [f'--{key}', __printValue(subVal['value'])]
         else:
             cmdList += [f'--{key}']
             value = val['value']
             if not isinstance(value, bool):
-                cmdList += [value]
+                cmdList += [__printValue(value)]
 
     volumeList = __getDockerRunVolumeList(ysPath, info)
     for item in volumeList:
-        cmdList += ['--volume', item]
+        cmdList += ['--volume', __printValue(item)]
 
-    cmdList += carryOpt
+    cmdList += [__printValue(val) for val in carryOpt]
 
     cmdList += [image]
 
@@ -663,6 +663,12 @@ def __listDockerRunCmd(
         cmdList += carryCmd
 
     return 0, ' '.join(cmdList)
+
+def __printValue(value: str):
+    if ' ' in value:
+        return '{!r}'.format(value)
+    else:
+        return value
 
 
 def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
