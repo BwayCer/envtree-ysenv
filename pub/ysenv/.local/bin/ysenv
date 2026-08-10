@@ -48,7 +48,7 @@ def main():
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
     if action == Action.EDIT:
-        sysPrintExit(0, f'vi {envConfigPath!r}')
+        confirmAndExec(f'vi {envConfigPath!r}')
     elif not os.path.exists(envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
 
@@ -63,7 +63,11 @@ def main():
         action, groups, instance,
         argvGroup, carryOpt, carryCmd,
     )
-    sysPrintExit(exitCode, txt)
+
+    if exitCode != 0 or action == Action.LIST:
+        sysPrintExit(exitCode, txt)
+    else:
+        confirmAndExec(txt)
 
 
 class Action(Enum):
@@ -721,6 +725,25 @@ def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
 def sysPrintExit(exitCode: int, txt: str):
     print(txt, file=None if exitCode == 0 else sys.stderr)
     exit(exitCode)
+
+
+def confirmAndExec(txt: str):
+    print("Shell Run:")
+    print(f"{txt}\n")
+
+    try:
+        choice = input('是否執行腳本？[y/N]: ').strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        # ex: `Ctrl + C`, `kill -2 <PID>`
+        exit(130)
+
+    if choice in ['y', 'yes']:
+        try:
+            os.execvp('sh', ['sh', '-c', txt])
+        except Exception as e:
+            sysPrintExit(1, f"執行失敗: {e}")
+
+    exit(0)
 
 
 def pathJoin(root: str, *args: tuple[str, ...]) -> str:
