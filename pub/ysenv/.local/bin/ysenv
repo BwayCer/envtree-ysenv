@@ -1,6 +1,7 @@
 #!/bin/env python3
 
 from typing import Callable
+from enum import Enum, auto
 import hashlib
 import os
 import random
@@ -43,10 +44,10 @@ def main():
 
     action, groups, instance, dockerOptStratIndex = __parseCmdArgv(_origArgv)
 
-    if action == 'Help' or action == 'NeedHelp':
+    if action == Action.HELP or action == Action.NEEDHELP:
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
-    if action == 'Edit':
+    if action == Action.EDIT:
         sysPrintExit(0, f'vi {envConfigPath!r}')
     elif not os.path.exists(envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
@@ -65,9 +66,18 @@ def main():
     sysPrintExit(exitCode, txt)
 
 
-def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
+class Action(Enum):
+    HELP = auto()
+    NEEDHELP = auto()
+    EDIT = auto()
+    LIST = auto()
+    HOST = auto()
+    DOCKER = auto()
+
+
+def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[Action, str, str, int]:
     isNeedHelp = True
-    action = ''
+    action = Action.HELP
     groups = ''
     instance = ''
     nextIdx = 1
@@ -79,11 +89,11 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
     argvLength = len(argv_)
     if '-h' in argv_ or '--help' in argv_:
         isNeedHelp = False
-        action = 'Help'
+        action = Action.HELP
     elif argvLength == 2 and argv_[1] == 'edit':
         nextIdx += 1
         isNeedHelp = False
-        action = 'Edit'
+        action = Action.EDIT
     elif argvLength > 2:
         isListSubCmd = False
         isHasInstance = False
@@ -101,7 +111,11 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
             case 'host' | 'docker' if isListSubCmd or isHasInstance:
                 isNeedHelp = False
                 nextIdx += 1
-                action = 'List' if isListSubCmd else 'Build'
+                action = (
+                    Action.LIST if isListSubCmd
+                    else Action.HOST if groups_ == 'host'
+                    else Action.DOCKER
+                )
                 groups = groups_ + 's'
 
                 if isHasInstance:
@@ -109,7 +123,7 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
                     instance = instance_
 
     if isNeedHelp:
-        action = 'NeedHelp'
+        action = Action.NEEDHELP
 
     return action, groups, instance, nextIdx
 
@@ -166,7 +180,7 @@ def loadConfig(filePath: str) -> tuple[int, str]:
 
 def __matchProcess(
     envConfig: dict,
-    action: str,
+    action: Action,
     groupListName: str,
     instanceName: str,
     argvGroup: dict,
@@ -198,11 +212,15 @@ def __matchProcess(
     if exitCode != 0:
         return 1, info
 
-    return (
-        __listGroupDetails if action == 'List'
-        else __listHostCmd if groupListName == 'hosts'
-        else __listDockerRunCmd
-    )(instanceId, ysPath, info, carryOpt, carryCmd)
+    match action:
+        case Action.LIST:
+            handler = __listGroupDetails
+        case Action.HOST:
+            handler = __listHostCmd
+        case Action.DOCKER:
+            handler = __listDockerRunCmd
+
+    return handler(instanceId, ysPath, info, carryOpt, carryCmd)
 
 
 def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
