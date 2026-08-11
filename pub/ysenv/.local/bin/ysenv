@@ -602,16 +602,21 @@ def __listHostCmd(
             hostPath = item['hostPath']
             vmPath = item['vmPath']
 
+            if os.path.exists(vmPath):
+                if hostPath == vmPath:
+                    continue
+
+                if not os.path.islink(vmPath):
+                    exitCode = 1
+                    warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
+                    continue
+
             vmDir = os.path.dirname(vmPath)
             if not os.path.exists(vmDir) and vmDir not in newCreateDir:
                 cmdLines += [f'mkdir -p {vmDir!r}']
                 newCreateDir.append(vmDir)
 
-            if not os.path.exists(vmPath) or os.path.islink(vmPath):
-                cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
-            else:
-                exitCode = 1
-                warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
+            cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
 
     isHasRcField = 'rc' in info
     if isHasRcField:
