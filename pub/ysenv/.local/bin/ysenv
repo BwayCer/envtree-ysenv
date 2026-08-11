@@ -18,10 +18,10 @@ helpTxt = '''\
 環境設定文件解析器
 Usage:
     edit
-    list <host|docker>
-    list <host|docker> [實例] [... docker opt]
+    list <host|cntr>
+    list <host|cntr> [實例] [... docker opt]
     host <實例>
-    docker <實例>
+    cntr <實例>
 Opt:
   -h, --help   幫助.
 '''
@@ -29,26 +29,30 @@ Opt:
 __hostHome = os.environ['HOME']
 __pwd = os.environ['PWD']
 
+__viCommand = 'vi'
+__cntrCommand = 'podman' # 'docker'
+
 __baseErrMsg = '環境設定文件格式不正確.'
 
 __fieldOfString = {'name', 'image', 'vmHome', 'workdir'}
-__fieldOfBoolean = {'notOnce', 'dock'}
+__fieldOfBoolean = {'notOnce'}
 __fieldOfArray = {'volume', 'rc'}
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 
+__vmNameFormat = 'V{RAND}-vm'
 __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
 
 def main():
     envConfigPath = pathJoin(_fileDir, './config.yaml')
 
-    action, groups, instance, dockerOptStratIndex = __parseCmdArgv(_origArgv)
+    action, groups, instance, cntrOptStratIndex = __parseCmdArgv(_origArgv)
 
     if action == Action.HELP or action == Action.NEEDHELP:
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
     if action == Action.EDIT:
-        confirmAndExec(f'vi {envConfigPath!r}')
+        confirmAndExec(f'{__viCommand} {envConfigPath!r}')
     elif not os.path.exists(envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
 
@@ -57,7 +61,7 @@ def main():
         sysPrintExit(exitCode, envConfig)
 
     argvGroup, carryOpt, carryCmd \
-        = __parseCmdArgvForCarryOpt(_origArgv, dockerOptStratIndex)
+        = __parseCmdArgvForCarryOpt(_origArgv, cntrOptStratIndex)
     exitCode, txt = __matchProcess(
         envConfig,
         action, groups, instance,
@@ -76,7 +80,7 @@ class Action(Enum):
     EDIT = auto()
     LIST = auto()
     HOST = auto()
-    DOCKER = auto()
+    CNTR = auto()
 
 
 def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[Action, str, str, int]:
@@ -112,13 +116,13 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[Action, str, str, int]:
 
         groups_ = argv_[nextIdx]
         match groups_:
-            case 'host' | 'docker' if isListSubCmd or isHasInstance:
+            case 'host' | 'cntr' if isListSubCmd or isHasInstance:
                 isNeedHelp = False
                 nextIdx += 1
                 action = (
                     Action.LIST if isListSubCmd
                     else Action.HOST if groups_ == 'host'
-                    else Action.DOCKER
+                    else Action.CNTR
                 )
                 groups = groups_ + 's'
 
@@ -221,8 +225,8 @@ def __matchProcess(
             handler = __listGroupDetails
         case Action.HOST:
             handler = __listHostCmd
-        case Action.DOCKER:
-            handler = __listDockerRunCmd
+        case Action.CNTR:
+            handler = __listCntrRunCmd
 
     return handler(instanceId, ysPath, info, carryOpt, carryCmd)
 
@@ -232,7 +236,7 @@ def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
         'ysPath': str,
         'groupParts': dict,
         'hosts': dict,
-        'dockers': dict,
+        'cntrs': dict,
     }
     for key, val in level01Type.items():
         if key not in envConfig or not isinstance(envConfig[key], val):
@@ -302,13 +306,13 @@ def __getGroupDetails(
             return 1, f'{__baseErrMsg} ({instanceId} 的 {errMsg})'
 
     vmHome = ''
-    if instanceListName == 'dockers':
+    if instanceListName == 'cntrs':
         if 'image' not in newInfo:
             return 1, f'{__baseErrMsg} ({instanceId} 找不到指定映像文件)'
 
-        # 在 dockers 的 instance 中設定 `vmHome` 欄位.
+        # 在 cntrs 的 instance 中設定 `vmHome` 欄位.
         if 'vmHome' not in newInfo:
-            vmHome = __getDockerContainerHomePath(
+            vmHome = __getCntrContainerHomePath(
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
@@ -435,7 +439,7 @@ def __sortVolumeKey(item: dict) -> int:
     return len(item['vmPath'])
 
 
-def __getDockerContainerHomePath(
+def __getCntrContainerHomePath(
     image: str,
     user: [None | str],
 ) -> dict:
@@ -445,12 +449,13 @@ def __getDockerContainerHomePath(
     `--rm` 會使 `docker run` 退出時花一段時間，具體秒數約 0~6 秒不等
     '''
 
-    dockerCmdList = ['docker', 'run', '--rm']
+    cmdList = [__cntrCommand, 'run', '--rm']
 
     if user is not None:
-        dockerCmdList += ['--user', user]
+        cmdList += ['--user', user]
 
-    cmdList = dockerCmdList.copy() + [image, 'sh', '-c', 'echo $HOME']
+    cmdList += [image, 'sh', '-c', 'echo $HOME']
+
     # `capture_output=True`:
     #   相當於同時設定了 `stdout=subprocess.PIPE` 和
     #   `stderr=subprocess.PIPE` 用於捕獲命令的標準輸出和標準錯誤, 並通过
@@ -491,11 +496,11 @@ def __listGroupDetails(
     carryCmd: list,
 ) -> tuple[int, str]:
     skipList = {'image', 'vmHome', 'workdir', 'notOnce', 'volume', 'rc'}
-    isDocker = instanceId.startswith('dockers.')
+    isCntr = instanceId.startswith('cntrs.')
 
     showMsgs = [f'ysPath : {ysPath}']
 
-    if isDocker:
+    if isCntr:
         showMsgs += [
             f'{key:7s}: {info[key]['value']}   (by {info[key]['from']})'
             for key in ['vmHome', 'workdir']
@@ -513,7 +518,7 @@ def __listGroupDetails(
 
         showMsgs += ['']
 
-    if isDocker:
+    if isCntr:
         showMsgs += ['Set option:']
 
         showMsgs += [
@@ -633,15 +638,15 @@ def __listHostCmd(
     )
 
 
-def __listDockerRunCmd(
+def __listCntrRunCmd(
     instanceId: str,
     ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    cmdList = ['docker', 'run']
-    skipList = {'image', 'vmHome', 'notOnce', 'dock', 'volume', 'rc'}
+    cmdList = [__cntrCommand, 'run']
+    skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
     image = info['image']['value']
 
     if (
@@ -654,7 +659,9 @@ def __listDockerRunCmd(
         cmdList += ['-it']
 
     # 自動設定 `name`, `hostname`
-    vmName = ''.join(random.choices(__randList26, k=7)) + '-vm'
+    vmName = __vmNameFormat.replace(
+        '{RAND}', ''.join(random.choices(__randList26, k=6)),
+    )
     if 'name' not in info:
         cmdList += ['--name', vmName]
     if 'hostname' not in info:
@@ -673,7 +680,7 @@ def __listDockerRunCmd(
             if not isinstance(value, bool):
                 cmdList += [__printValue(value)]
 
-    volumeList = __getDockerRunVolumeList(ysPath, info)
+    volumeList = __getCntrRunVolumeList(ysPath, info)
     for item in volumeList:
         cmdList += ['--volume', __printValue(item)]
 
@@ -693,7 +700,7 @@ def __printValue(value: str):
         return value
 
 
-def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
+def __getCntrRunVolumeList(ysPath: str, info: dict) -> list[str]:
     vmHome = info['vmHome']['value']
     volumeList = []
 
@@ -709,9 +716,6 @@ def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
         rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'])
         createRcTxt()
         volumeList += [f'{rcFilePath}:{vmHome}/{rcFileName}']
-
-    if 'dock' in info and info['dock']['value'] is True:
-        volumeList += ['/var/run/docker.sock:/var/run/docker.sock:ro']
 
     volumeList += [f'{ysPath}:{ysPath}']
 

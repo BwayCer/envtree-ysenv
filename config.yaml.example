@@ -27,10 +27,8 @@ groupParts:
     notOnce: true
     # 設定容器名稱並同時設定 `--hostname`.
     name: <容器名稱>
-    # 掛載 "/var/run/docker.sock"
-    dock: true
 
-host:
+hosts:
   <自定義名稱>:
     # 將嵌入 groupParts 的設定選項
     groupParts:
@@ -39,7 +37,7 @@ host:
     # 其他和 groupParts 可定義的選項相同, 但屬於 docker 的會被忽略.
     # 所有欄位皆是可選的但最後至少要有個 `volume` 或 `rc` 欄位.
 
-docker:
+cntrs:
   <自定義名稱>:
     groupParts:
       - <groupParts 下的欄位>
