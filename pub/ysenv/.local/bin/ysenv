@@ -346,7 +346,9 @@ def __getGroupDetails(
             return 1, f'{__baseErrMsg} ({instanceId} 找不到指定映像文件)'
 
         # 在 cntrs 的 instance 中設定 `vmhome` 欄位.
-        if 'vmhome' not in newInfo:
+        if 'vmhome' in newInfo:
+            vmHome = newInfo['vmhome']['value']
+        else:
             vmHome = __getCntrContainerHomePath(
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
