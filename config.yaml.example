@@ -1,6 +1,7 @@
 ---
-# 用戶文件根目錄. (把文件放於同一目錄下, 以鏈結的方式建立環境)
-ysPath: ~/ys
+# 容器的執行命令
+cntrCommand: podman # docker
+
 palletBoxs:
   <自定義名稱>:
     volume:
