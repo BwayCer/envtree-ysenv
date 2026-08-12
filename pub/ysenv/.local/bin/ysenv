@@ -38,15 +38,17 @@ _origArgv = sys.argv
 __hostHome = os.environ['HOME']
 __pwd = os.environ['PWD']
 
+__envConfigPath = os.environ.get('YSENV_CONFIG_PATH') \
+    or pathJoin(__hostHome, 'ys', 'envfile', 'config.yaml')
+
 __viCommand = 'vi'
-__cntrCommand = 'podman' # 'docker'
 
 __baseErrMsg = '環境設定文件不正確.'
 __argvErrMsg = '參數設定不正確.'
 
 __forklift = 'forklift'
 __fieldOfString = {'name', 'image', 'vmhome', 'workdir'}
-__fieldOfBoolean = {'daemon'}
+__fieldOfBoolean = {'daemon', 'pwdir'}
 __fieldOfArray = {'volume', 'rc'}
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 
@@ -55,19 +57,17 @@ __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
 
 def main():
-    envConfigPath = pathJoin(_fileDir, './config.yaml')
-
     action, groups, instance, cntrOptStratIndex = __parseCmdArgv(_origArgv)
 
     if action == Action.HELP or action == Action.NEEDHELP:
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
     if action == Action.EDIT:
-        confirmAndExec(f'{__viCommand} {envConfigPath!r}')
-    elif not os.path.exists(envConfigPath):
+        confirmAndExec(f'{__viCommand} {__envConfigPath!r}')
+    elif not os.path.exists(__envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
 
-    exitCode, envConfig = loadConfig(envConfigPath)
+    exitCode, envConfig = loadConfig(__envConfigPath)
     if exitCode != 0:
         sysPrintExit(exitCode, envConfig)
 
@@ -220,6 +220,13 @@ def __matchProcess(
     if errMsg is not None:
         return 1, errMsg
 
+    runConfig = {
+        'cntrCommand': {
+            'value': envConfig['cntrCommand'],
+            'from': 'envConfig',
+        },
+    }
+
     groups = envConfig[groupListName]
     groupsKeys = groups.keys()
 
@@ -232,12 +239,10 @@ def __matchProcess(
             f'找不到 "{instanceName}" 實例. (允許值: {", ".join(groupsKeys)})'
         )
 
-    # `os.path.expanduser()` 只接受 `~` 無法辨別 `$HOME`.
-    ysPath = os.path.expanduser(envConfig['ysPath'])
-
     instanceId = f'{groupListName}.{instanceName}'
     exitCode, info = __getGroupDetails(
-        ysPath, envConfig, groupListName, instanceName, palletBoxsByForklift, argvGroup,
+        runConfig, envConfig,
+        groupListName, instanceName, palletBoxsByForklift, argvGroup,
     )
     if exitCode != 0:
         return 1, info
@@ -250,12 +255,12 @@ def __matchProcess(
         case Action.CNTR:
             handler = __listCntrRunCmd
 
-    return handler(instanceId, ysPath, info, carryOpt, carryCmd)
+    return handler(runConfig, instanceId, info, carryOpt, carryCmd)
 
 
 def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
     level01Type = {
-        'ysPath': str,
+        'cntrCommand': str,
         'palletBoxs': dict,
         'hosts': dict,
         'cntrs': dict,
@@ -285,7 +290,7 @@ def __checkEnvConfigXxMergePalletBoxs(
 
 
 def __getGroupDetails(
-    ysPath: str,
+    runConfig: dict,
     envConfig: dict,
     instanceListName: str,
     instanceName: str,
@@ -329,6 +334,7 @@ def __getGroupDetails(
     ] + [['instance', instance], ['argv', argvGroup]]
 
     newInfo = {}
+
     for item in mergeItems:
         theId = item[0]
         theInfo = item[1]
@@ -350,19 +356,29 @@ def __getGroupDetails(
             vmHome = newInfo['vmhome']['value']
         else:
             vmHome = __getCntrContainerHomePath(
+                runConfig['cntrCommand']['value'],
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
             newInfo['vmhome'] = {'value': vmHome, 'from': 'via container'}
 
-        cwdDir = __pwd + os.path.sep
-        ysDir = ysPath + os.path.sep
-        if 'workdir' not in newInfo and cwdDir.startswith(ysDir):
-            newInfo['workdir'] = {'value': __pwd, 'from': 'default'}
-
         # 如果有 `name` 欄位則會自動產生或覆寫 `hostname` 欄位.
         if 'name' in newInfo:
             newInfo['hostname'] = newInfo['name']
+
+        if 'pwdir' in newInfo:
+            info = newInfo['pwdir']
+            del newInfo['pwdir']
+
+            if info['value'] is True:
+                origFromId = info['from']
+                theId = f'{origFromId}.pwdir'
+                thePath = __expanduserRev(__pwd)
+                __mergeGroup(newInfo, theId, {
+                    'volume': [f'{thePath}:{thePath}'],
+                    'workdir': __pwd,
+                })
+
 
     elif instanceListName == 'hosts':
         if not ('volume' in newInfo or 'rc' in newInfo):
@@ -376,6 +392,10 @@ def __getGroupDetails(
         return 1, f'{__baseErrMsg} ({instanceId} 的 {errMsg})'
 
     return 0, newInfo
+
+
+def __expanduserRev(path: str) -> bool:
+    return path.replace(__hostHome, '~', 1) if path.startswith(__hostHome) else path
 
 
 def __isList(obj: object) -> bool:
@@ -477,6 +497,7 @@ def __sortVolumeKey(item: dict) -> int:
 
 
 def __getCntrContainerHomePath(
+    cntrCommand: str,
     image: str,
     user: [None | str],
 ) -> dict:
@@ -486,7 +507,7 @@ def __getCntrContainerHomePath(
     `--rm` 會使 `docker run` 退出時花一段時間，具體秒數約 0~6 秒不等
     '''
 
-    cmdList = [__cntrCommand, 'run', '--rm']
+    cmdList = [cntrCommand, 'run', '--rm']
 
     if user is not None:
         cmdList += ['--user', user]
@@ -526,8 +547,8 @@ def __getRcTxt(
 
 
 def __listGroupDetails(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
@@ -535,15 +556,16 @@ def __listGroupDetails(
     skipList = {'image', 'vmhome', 'workdir', 'daemon', 'volume', 'rc'}
     isCntr = instanceId.startswith('cntrs.')
 
-    showMsgs = [f'ysPath : {ysPath}']
+    showMsgs = [
+        f'{key:6s}: {runConfig[key]['value']}   (by {runConfig[key]['from']})'
+        for key in runConfig
+    ]
 
     if isCntr:
         showMsgs += [
-            f'{key:7s}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
-            for key in ['vmhome', 'workdir']
-        ] + [
-            f'{key}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
-            for key in ['image']
+            f'{key:6s}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
+            for key in ['vmhome', 'workdir', 'image']
+            if key in info
         ]
 
         if len(carryOpt):
@@ -623,8 +645,8 @@ def __listGroupDetails(
 
 
 def __listHostCmd(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
@@ -681,13 +703,13 @@ def __listHostCmd(
 
 
 def __listCntrRunCmd(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    cmdList = [__cntrCommand, 'run']
+    cmdList = [runConfig['cntrCommand']['value'], 'run']
     skipList = {'image', 'vmhome', 'daemon', 'volume', 'rc'}
     image = info['image']['value']
 
@@ -722,7 +744,7 @@ def __listCntrRunCmd(
             if not isinstance(value, bool):
                 cmdList += [__printValue(value)]
 
-    volumeList = __getCntrRunVolumeList(ysPath, info)
+    volumeList = __getCntrRunVolumeList(info)
     for item in volumeList:
         cmdList += ['--volume', __printValue(item)]
 
@@ -742,7 +764,7 @@ def __printValue(value: str):
         return value
 
 
-def __getCntrRunVolumeList(ysPath: str, info: dict) -> list[str]:
+def __getCntrRunVolumeList(info: dict) -> list[str]:
     vmHome = info['vmhome']['value']
     volumeList = []
 
@@ -758,12 +780,6 @@ def __getCntrRunVolumeList(ysPath: str, info: dict) -> list[str]:
         rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'])
         createRcTxt()
         volumeList += [f'{rcFilePath}:{vmHome}/{rcFileName}']
-
-    volumeList += [f'{ysPath}:{ysPath}']
-
-    ysRealPath = os.path.realpath(ysPath)
-    if ysPath != ysRealPath:
-        volumeList += [f'{ysRealPath}:{ysRealPath}']
 
     return volumeList
 
