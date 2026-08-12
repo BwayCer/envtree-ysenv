@@ -1,7 +1,7 @@
 ---
 # 用戶文件根目錄. (把文件放於同一目錄下, 以鏈結的方式建立環境)
 ysPath: ~/ys
-groupParts:
+palletBoxs:
   <自定義名稱>:
     volume:
       # 路徑需以絕對路徑表示, 但可以使用 `~/` 為開頭.
@@ -30,20 +30,20 @@ groupParts:
 
 hosts:
   <自定義名稱>:
-    # 將嵌入 groupParts 的設定選項
-    groupParts:
-      - <groupParts 下的欄位>
+    # 將嵌入 palletBoxs 的設定選項
+    palletBoxs:
+      - <palletBoxs 下的欄位>
 
-    # 其他和 groupParts 可定義的選項相同, 但屬於 docker 的會被忽略.
+    # 其他和 palletBoxs 可定義的選項相同, 但屬於 docker 的會被忽略.
     # 所有欄位皆是可選的但最後至少要有個 `volume` 或 `rc` 欄位.
 
 cntrs:
   <自定義名稱>:
-    groupParts:
-      - <groupParts 下的欄位>
+    palletBoxs:
+      - <palletBoxs 下的欄位>
 
     # docker 一定要有 `image` 欄位
     image: local/mizuarch
 
-    # 其他和 groupParts 可定義的選項相同
+    # 其他和 palletBoxs 可定義的選項相同
 ...
