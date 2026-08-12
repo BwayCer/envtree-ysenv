@@ -22,7 +22,7 @@ palletBoxs:
 
     ## 特殊 docker run 選項]
     # 設定 `volume` 中容器 `~/` 家目錄的路徑, 未設定的話會自動由容器內讀取(需要點時間).
-    vmHome: /home/bwaycer
+    vmhome: /home/bwaycer
     # 取消預設使用的 `--rm`.
     notOnce: true
     # 設定容器名稱並同時設定 `--hostname`.
