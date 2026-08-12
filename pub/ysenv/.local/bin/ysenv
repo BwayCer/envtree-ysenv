@@ -10,9 +10,14 @@ import sys
 import yaml
 
 
-_origArgv = sys.argv
-_fileDir = os.path.dirname(os.path.abspath(__file__))
-_filename = os.path.basename(__file__)
+def pathJoin(root: str, *args: tuple[str, ...]) -> str:
+    '把路徑依平台分隔符重新組合.'
+    pathParts = []
+    for thePath in args:
+        for part in thePath.split('/'):
+            pathParts.append(part)
+    return os.path.normpath(os.path.join(root, *pathParts))
+
 
 helpTxt = '''\
 環境設定文件解析器
@@ -25,6 +30,11 @@ Opt:
   -h, --help   幫助.
 '''
 
+_fileDir = os.path.dirname(os.path.abspath(__file__))
+_filename = os.path.basename(__file__)
+
+_origArgv = sys.argv
+
 __hostHome = os.environ['HOME']
 __pwd = os.environ['PWD']
 
@@ -35,8 +45,8 @@ __baseErrMsg = '環境設定文件不正確.'
 __argvErrMsg = '參數設定不正確.'
 
 __forklift = 'forklift'
-__fieldOfString = {'name', 'image', 'vmHome', 'workdir'}
-__fieldOfBoolean = {'notOnce'}
+__fieldOfString = {'name', 'image', 'vmhome', 'workdir'}
+__fieldOfBoolean = {'daemon'}
 __fieldOfArray = {'volume', 'rc'}
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 
@@ -335,13 +345,13 @@ def __getGroupDetails(
         if 'image' not in newInfo:
             return 1, f'{__baseErrMsg} ({instanceId} 找不到指定映像文件)'
 
-        # 在 cntrs 的 instance 中設定 `vmHome` 欄位.
-        if 'vmHome' not in newInfo:
+        # 在 cntrs 的 instance 中設定 `vmhome` 欄位.
+        if 'vmhome' not in newInfo:
             vmHome = __getCntrContainerHomePath(
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
-            newInfo['vmHome'] = {'value': vmHome, 'from': 'via container'}
+            newInfo['vmhome'] = {'value': vmHome, 'from': 'via container'}
 
         cwdDir = __pwd + os.path.sep
         ysDir = ysPath + os.path.sep
@@ -520,17 +530,17 @@ def __listGroupDetails(
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    skipList = {'image', 'vmHome', 'workdir', 'notOnce', 'volume', 'rc'}
+    skipList = {'image', 'vmhome', 'workdir', 'daemon', 'volume', 'rc'}
     isCntr = instanceId.startswith('cntrs.')
 
     showMsgs = [f'ysPath : {ysPath}']
 
     if isCntr:
         showMsgs += [
-            f'{key:7s}: {info[key]['value']}   (by {info[key]['from']})'
-            for key in ['vmHome', 'workdir']
+            f'{key:7s}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
+            for key in ['vmhome', 'workdir']
         ] + [
-            f'{key}: {info[key]['value']}   (by {info[key]['from']})'
+            f'{key}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
             for key in ['image']
         ]
 
@@ -548,8 +558,8 @@ def __listGroupDetails(
 
         showMsgs += [
             '  --rm   (by default)'
-            if 'notOnce' not in info or info['notOnce']['value'] is not True
-            else f'  #notOnce   (by {info['notOnce']['from']})'
+            if 'daemon' not in info or info['daemon']['value'] is not True
+            else f'  #NotRmFlag   (by {info['daemon']['from']})'
         ]
 
         if '-it' not in carryOpt:
@@ -561,7 +571,7 @@ def __listGroupDetails(
 
             if isinstance(val, list):
                 showMsgs += [
-                    f'   --{key} = {subVal['value']}   (by {subVal['from']})'
+                    f'  --{key} = {subVal['value']}   (by {subVal['from']})'
                     for subVal in val
                 ]
             else:
@@ -676,11 +686,11 @@ def __listCntrRunCmd(
     carryCmd: list,
 ) -> tuple[int, str]:
     cmdList = [__cntrCommand, 'run']
-    skipList = {'image', 'vmHome', 'notOnce', 'volume', 'rc'}
+    skipList = {'image', 'vmhome', 'daemon', 'volume', 'rc'}
     image = info['image']['value']
 
     if (
-        ('notOnce' not in info or info['notOnce']['value'] is not True)
+        ('daemon' not in info or info['daemon']['value'] is not True)
         and '--rm' not in carryOpt
     ):
         cmdList += ['--rm']
@@ -731,7 +741,7 @@ def __printValue(value: str):
 
 
 def __getCntrRunVolumeList(ysPath: str, info: dict) -> list[str]:
-    vmHome = info['vmHome']['value']
+    vmHome = info['vmhome']['value']
     volumeList = []
 
     if 'volume' in info:
@@ -778,15 +788,6 @@ def confirmAndExec(txt: str):
             sysPrintExit(1, f"執行失敗: {e}")
 
     exit(0)
-
-
-def pathJoin(root: str, *args: tuple[str, ...]) -> str:
-    '把路徑依平台分隔符重新組合.'
-    pathParts = []
-    for thePath in args:
-        for part in thePath.split('/'):
-            pathParts.append(part)
-    return os.path.normpath(os.path.join(root, *pathParts))
 
 
 if __name__ == '__main__':
