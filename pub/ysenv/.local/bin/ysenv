@@ -47,9 +47,13 @@ __baseErrMsg = '環境設定文件不正確.'
 __argvErrMsg = '參數設定不正確.'
 
 __forklift = 'forklift'
-__fieldOfString = {'name', 'image', 'vmhome', 'workdir'}
+# __fieldOfString, __fieldOfBoolean, __fieldOfArray 的項目是
+# `__envConfigPath` 文件預設處理的項目, 其餘依
+# `__mergeGroup()` 的預設方式處理.
+__fieldOfString = {'name', 'image', 'vmhome', 'workdir', 'cpus', 'memory'}
 __fieldOfBoolean = {'daemon', 'pwdir'}
-__fieldOfArray = {'volume', 'rc'}
+__fieldOfArray = {'env', 'volume', 'rc'}
+# __allowArgvOverwriteField 是 `_origArgv` 需要合併處理的項目.
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 
 __vmNameFormat = 'V{RAND}-vm'
