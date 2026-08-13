@@ -410,10 +410,10 @@ def __getGroupDetails(
 
 
     elif instanceListName == 'hosts':
-        if not ('volume' in newInfo or 'rc' in newInfo):
+        if not ('env' in newInfo or 'volume' in newInfo or 'rc' in newInfo):
             return (
                 1,
-                f'{__baseErrMsg} ({instanceId} 是空白任務 (沒有 `volume`, `rc`))'
+                f'{__baseErrMsg} ({instanceId} 是空白任務 (沒有 `env`, `volume`, `rc`))'
             )
 
     errMsg = __mergeVolume(newInfo, vmHome)
@@ -588,13 +588,16 @@ def __listGroupDetails(
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    skipList = {'image', 'vmhome', 'workdir', 'daemon', 'volume', 'rc'}
+    skipList = {'image', 'vmhome', 'workdir', 'daemon', 'env', 'volume', 'rc'}
     isCntr = instanceId.startswith('cntrs.')
 
     showMsgs = [
         f'{key:6s}: {runConfig[key]['value']}   (by {runConfig[key]['from']})'
         for key in runConfig
     ]
+
+    if not isCntr:
+        showMsgs += ['']
 
     if isCntr:
         showMsgs += [
@@ -641,6 +644,15 @@ def __listGroupDetails(
                     + ('' if isinstance(value, bool) else f' = {value}')
                     + f'   (by {fromGroup})'
                 ]
+
+        showMsgs += ['']
+
+    if 'env' in info:
+        envInfo = info['env']
+        showMsgs += ['Env list:'] + [
+            f'  {item['value']}   (by {item['from']})'
+            for item in envInfo
+        ]
 
         showMsgs += ['']
 
@@ -691,16 +703,27 @@ def __listHostCmd(
     warnLines = []
     warnEndingMessage = '尚未完成環境建制, 請再執行一次命令.'
 
-    isHasRcField = 'rc' in info
-    if isHasRcField:
-        rcFileName, rcFilePath, rcTxt = __getRcTxt(info['rc'], True)
+    rcLines = []
+
+    if 'env' in info:
+        rcLines += [
+            {'value': f"export {item['value']}"}
+            for item in info['env']
+        ]
+
+    if 'rc' in info:
+        rcLines += info['rc']
+
+    isHasRc = len(rcLines) > 0
+    if isHasRc:
+        rcFileName, rcFilePath, rcTxt = __getRcTxt(rcLines, True)
 
     tmpFileNames = os.listdir(__hostHome)
     for tmpFileName in tmpFileNames:
         if not tmpFileName.startswith(__ownedScriptPrefix):
             continue
 
-        if isHasRcField and tmpFileName == rcFileName:
+        if isHasRc and tmpFileName == rcFileName:
             continue
 
         exitCode = 1
@@ -738,7 +761,7 @@ def __listHostCmd(
 
             cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
 
-    if exitCode == 0 and isHasRcField:
+    if exitCode == 0 and isHasRc:
         if len(cmdLines) > 0:
             cmdLines += ['']
 
