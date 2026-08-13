@@ -9,8 +9,9 @@
     co = checkout
     coorphan = checkout --orphan
     ci = commit --allow-empty -m
-    citmp = !sh -c \"git commit -m \\\"temp `date -u +\\\"%Y-%m-%dT%H:%M:%S.%9NZ\\\"`\\\"\"
+    citmp = !sh -c \"git commit -m \\\"temp: stash `date -u +\\\"%Y-%m-%dT%H:%M:%S.%9NZ\\\"`\\\"\"
     st = status
+    sd = stash
     difcached = diff --cached
     br = branch
     brmv = !sh -c \"git checkout -b $2 $1 && git branch -D $1\"
@@ -26,6 +27,15 @@
     lookfor = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s [%an]' --date=format:'%Y-%m-%d %H:%M:%S' --stat --all-match --grep
 [core]
     excludesfile = ~/.gitignore_global
-    editor = vim
+    editor = vi
+    pager = less -F
     quotepath = false
+    autocrlf = input
+[init]
+    defaultBranch = main
 
+[filter "lfs"]
+	clean = git-lfs clean -- %f
+	smudge = git-lfs smudge -- %f
+	process = git-lfs filter-process
+	required = true
