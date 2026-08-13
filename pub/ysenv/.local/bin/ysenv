@@ -60,6 +60,8 @@ __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 __vmNameFormat = 'V{RAND}-vm'
 __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
+__ownedScriptPrefix = '.bashrc_ysenv_'
+
 
 def main():
     action, groups, instance, cntrOptStratIndex = __parseCmdArgv(_origArgv)
@@ -555,15 +557,21 @@ def __getCntrContainerHomePath(
 
 def __getRcTxt(
     rcInfo: list, isPersist: bool = False
-) -> tuple[str, str, Callable[[], None]]:
+) -> tuple[str, str, str]:
     nodePath = __hostHome if isPersist else '/tmp'
 
     rcLines = [item['value'] for item in rcInfo]
     rcTxt = '\n'.join(rcLines)
     hashCode = hashlib.sha256(rcTxt.encode()).hexdigest()[:7]
 
-    rcFileName = f'.bashrc_ysenv_{hashCode}'
+    rcFileName = f'{__ownedScriptPrefix}{hashCode}'
     rcFilePath = f'{nodePath}/{rcFileName}'
+
+    return rcFileName, rcFilePath, rcTxt
+
+
+def __createTmpRcFile(rcInfo: list) -> tuple[str, str, Callable[[], None]]:
+    rcFileName, rcFilePath, rcTxt = __getRcTxt(rcInfo)
 
     def createRcTxt():
         if not os.path.exists(rcFilePath):
@@ -681,8 +689,34 @@ def __listHostCmd(
     exitCode = 0
     cmdLines = []
     warnLines = []
+    warnEndingMessage = '尚未完成環境建制, 請再執行一次命令.'
+
+    isHasRcField = 'rc' in info
+    if isHasRcField:
+        rcFileName, rcFilePath, rcTxt = __getRcTxt(info['rc'], True)
+
+    tmpFileNames = os.listdir(__hostHome)
+    for tmpFileName in tmpFileNames:
+        if not tmpFileName.startswith(__ownedScriptPrefix):
+            continue
+
+        if isHasRcField and tmpFileName == rcFileName:
+            continue
+
+        exitCode = 1
+        warnLines += [f'rm {__hostHome}/{tmpFileName}']
+
+    if exitCode != 0:
+        warnLines += [
+            f'echo "(刪除 {_filename} 所管理的文件)"',
+            f'echo "({warnEndingMessage})"',
+        ]
+        return 0, '\n'.join(warnLines)
 
     if 'volume' in info:
+        if len(cmdLines) > 0:
+            cmdLines += ['']
+
         newCreateDir = []
         for item in info['volume']:
             hostPath = item['hostPath']
@@ -704,29 +738,24 @@ def __listHostCmd(
 
             cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
 
-    isHasRcField = 'rc' in info
-    if isHasRcField:
-        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'], True)
-
-    tmpFileNames = os.listdir(__hostHome)
-    for tmpFileName in tmpFileNames:
-        if not tmpFileName.startswith('.bashrc_ysenv_'):
-            continue
-
-        if isHasRcField and tmpFileName == rcFileName:
-            continue
-
-        exitCode = 1
-        warnLines += [f'echo "請執行 \\`rm {__hostHome}/{tmpFileName}\\`"']
-
     if exitCode == 0 and isHasRcField:
-        createRcTxt()
-        cmdLines += [f'echo "請執行 \\`source {rcFilePath!r}\\`"']
+        if len(cmdLines) > 0:
+            cmdLines += ['']
+
+        cmdLines += [
+            f"cat << 'YSENV_RC_EOF' > {rcFilePath!r}",
+            rcTxt,
+            'YSENV_RC_EOF',
+            '',
+            f'echo "請執行 \\`source {rcFilePath!r}\\`"',
+        ]
 
     # 因為警告也是以 bash 輸出, 使用標準輸出才能配合 `sh <(...)`
-    return 0, '\n'.join(
-        cmdLines if exitCode == 0 else warnLines
-    )
+    if exitCode != 0:
+        warnLines += [f'echo "{warnEndingMessage}"']
+        return 0, '\n'.join(warnLines)
+
+    return 0, '\n'.join(cmdLines)
 
 
 def __listCntrRunCmd(
@@ -804,7 +833,7 @@ def __getCntrRunVolumeList(info: dict) -> list[str]:
             volumeList += [volumeOpt]
 
     if 'rc' in info:
-        rcFileName, rcFilePath, createRcTxt = __getRcTxt(info['rc'])
+        rcFileName, rcFilePath, createRcTxt = __createTmpRcFile(info['rc'])
         createRcTxt()
         volumeList += [f'{rcFilePath}:{vmHome}/{rcFileName}']
 
