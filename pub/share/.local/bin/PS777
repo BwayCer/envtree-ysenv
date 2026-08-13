@@ -1,0 +1,158 @@
+#!/bin/env bash
+# 命令行提示
+
+# NOTE:
+# 1. 無法使用 `history` 命令
+# 2. 不加 `export` 可以讓同層的 shell 取的到變量，但其子層則無值
+#    export PS777_hasTime=0
+# 3. https://askubuntu.com/questions/372849
+#    PS1="${debian_chroot:+($debian_chroot)}"
+
+
+PS777() {
+  local ps1_u="$1"
+  local ps1_h="$2"
+  local ps1_w="$3"
+  local exitCode=$4
+
+  # NOTE:
+  # 很久前保留的一段描述
+  #     We have color support; assume it's compliant with Ecma-48
+  #     (ISO/IEC-6429). (Lack of such support is extremely rare, and such
+  #     a case would tend to support setf rather than setaf.)
+  # 以及所使用的判斷方式
+  #     [ -x /usr/bin/tput ] && tput setaf 1 &> /dev/null && { ... } || :
+  # 但在使用 "apline:3.11.5" 的容器時發現
+  # 其沒有安裝 `tput` 也可以正常顯示 "\[\033[31;01m\]" 等顏色表示式
+  # 故決定在 PS1 上一律顯示顏色
+
+  # "\[\033[31;01m\]" (PS1 適用)
+  local _fN="\033[00m"
+  local _fRedB="\033[31;01m"
+  local _fGreB="\033[32;01m"
+  local _fYelB="\033[33;01m"
+  local _fCyaB="\033[36;01m"
+  local _fCyaW="\033[37;01m"
+
+  printf "${_fGreB}%s@%s${_fN}" "$ps1_u" "$ps1_h"
+
+  local showPathStart=""
+  local showPathMiddle=""
+  local showPath="$ps1_w"
+  PS777_fnAutoPathSize() {
+    local idx len
+
+    # $COLUMNS == `tput cols`
+    local diffSize=$((${#showPath} - (COLUMNS * 3 / 7)))
+
+    ## 原路徑顯示: 路徑長度小於終端顯示寬的一半
+    [ $diffSize -gt 0 ] || return
+
+    # 將路徑分割成各個目錄
+    local pathParts
+    IFS='/' read -ra pathParts <<< "$showPath"
+
+    ## 以忽略符顯示: 目錄數*4 仍大於終端顯示寬的一半
+    [ $((${#showPath} - ${#pathParts[-1]} - (${#pathParts[@]} - 1) * 4)) \
+      -ge $diffSize \
+    ] || {
+      showPathStart="${pathParts[0]}/${pathParts[1]}/";
+      showPathMiddle="...";
+      showPath="/${pathParts[-1]}";
+      return;
+    }
+
+    ## 以略縮目錄 `xxx>` 顯示
+    # 前兩個目錄和最後一個目錄是固定的
+    showPathStart="${pathParts[0]}/${pathParts[1]}/"
+    showPath=""
+    for ((idx=2, len=(${#pathParts[@]} - 1); idx < len; idx++)); do
+      if [ $diffSize -gt 0 ]; then
+        if [ ${#pathParts[idx]} -gt 3 ]; then
+          ((diffSize-= ${#pathParts[idx]} - 4))
+          showPathMiddle+="${pathParts[idx]:0:3}>"
+        else
+          showPathMiddle+="${pathParts[idx]}/"
+        fi
+      else
+        showPath+="${pathParts[idx]}/"
+      fi
+    done
+    showPath+="${pathParts[-1]}"
+  }
+  PS777_fnAutoPathSize
+  printf ":${_fCyaB}%s${_fN}\033[36m%s${_fCyaB}%s${_fN}" \
+    "$showPathStart" "$showPathMiddle" "$showPath"
+
+  # exitCode
+  [ $exitCode -eq 0 ] || printf " ${_fRedB}(exit:$exitCode)${_fN}"
+
+  # git 狀態
+  PS777_fnGitStatus() {
+    local tmp
+    local gitStatusTxt=`LC_ALL=C git status 2> /dev/null`
+
+    [ -n "$gitStatusTxt" ] || return
+
+    local color txtBranch
+
+    if [ "`sed -n "3p" <<< "$gitStatusTxt"`" != "No commits yet" ]; then
+      git status --porcelain | grep -qE '^\s?[AMDR]' &&
+        color=$_fYelB || color=$_fCyaW
+
+      # `git branch --show-current &> /dev/null` or `git log &> /devnull` 無法隱藏以下錯誤
+      # error(fatal: your current branch 'master' does not have any commits yet)
+      local currBranch
+      # git v2.22.0 才支持 `--show-current`
+      currBranch=`git branch --show-current 2> /dev/null`
+      [ $? -eq 0 ] || currBranch=`(
+        sed -n "1p" | grep "^On branch" | sed "s/^On branch \(.\+\)/\1/"
+      ) <<< "$gitStatusTxt"`
+      [ -n "$currBranch" ] \
+        && txtBranch="$currBranch" \
+        || txtBranch="(`git log --pretty=format:"%h" -1`)"
+    else
+      color=$_fN
+      txtBranch="---"
+    fi
+
+    printf " ${color}[git:$txtBranch]${_fN}"
+  }
+  PS777_fnGitStatus
+
+  # 命令耗時
+  if [ "$PS777_tmpVarCmdDuration" -ge 60 ]; then
+    printf " (spend: %dm %ds)" \
+      $((PS777_tmpVarCmdDuration / 60)) \
+      $((PS777_tmpVarCmdDuration % 60))
+  elif [ "$PS777_tmpVarCmdDuration" -gt 2 ]; then
+    printf " (spend:%ds)" $PS777_tmpVarCmdDuration
+  fi
+
+  # shell 層數
+  [ "$SHLVL" -ge 2 ] &&
+    printf "\\nL$SHLVL\$ " ||
+    printf '\n$ '
+}
+
+PS777_fnCmdTimeit() {
+  PS777_tmpVarCmdTimeit=${PS777_tmpVarCmdTimeit:-$SECONDS}
+}
+
+PS777_fnPromptCommand() {
+  PS777_tmpVarCmdDuration=$(($SECONDS - $PS777_tmpVarCmdTimeit))
+  unset PS777_tmpVarCmdTimeit
+}
+
+[ -n "$PS777_varIsStart" ] || {
+  trap 'PS777_fnCmdTimeit' DEBUG
+  PS777_varIsStart=1
+}
+
+PROMPT_COMMAND=PS777_fnPromptCommand
+
+PS1=\
+'`tmpExitCode=\$?; type PS777 &> /dev/null'\
+'   && PS777 "\u" "\h" "\w" "$tmpExitCode"'\
+'   || echo "[\u@\h \W]\$ "`'
+
