@@ -1,0 +1,31 @@
+[user]
+    name = BwayCer
+    email = bwaycer@gmail.com
+[push]
+    default = simple
+[color]
+    ui = true
+[alias]
+    co = checkout
+    coorphan = checkout --orphan
+    ci = commit --allow-empty -m
+    citmp = !sh -c \"git commit -m \\\"temp `date -u +\\\"%Y-%m-%dT%H:%M:%S.%9NZ\\\"`\\\"\"
+    st = status
+    difcached = diff --cached
+    br = branch
+    brmv = !sh -c \"git checkout -b $2 $1 && git branch -D $1\"
+    rt = remote
+    rtv = remote -v
+    rtadd = remote add
+    rtrm = remote remove
+    rtmv = !sh -c \"git remote remove $1 && git remote add $1 $2\"
+    hist = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s%C(yellow)%d %C(white)[%an]' --graph --date=short
+    histall = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s%C(yellow)%d %C(white)[%an]' --graph --date=short --all
+    histinfo = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s%C(yellow)%d %C(white)[%an]' --graph --date=short --stat
+    histdiff = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s%C(yellow)%d %C(white)[%an]' --graph --date=short -p
+    lookfor = log --pretty=format:'%C(yellow)%h %C(white)%ad | %s [%an]' --date=format:'%Y-%m-%d %H:%M:%S' --stat --all-match --grep
+[core]
+    excludesfile = ~/.gitignore_global
+    editor = vim
+    quotepath = false
+
