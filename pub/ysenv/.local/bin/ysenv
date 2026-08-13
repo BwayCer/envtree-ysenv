@@ -23,6 +23,7 @@ helpTxt = '''\
 環境設定文件解析器
 Usage:
     edit
+    cntrCommand
     list <pallet|host|cntr>
     host <實例>
     cntr <實例> [... docker opt]
@@ -75,6 +76,13 @@ def main():
     if exitCode != 0:
         sysPrintExit(exitCode, envConfig)
 
+    errMsg = __checkEnvConfigXxBase(envConfig)
+    if errMsg is not None:
+        sysPrintExit(1, errMsg)
+
+    if action == Action.CNTRCOMMAND:
+        sysPrintExit(0, envConfig['cntrCommand'])
+
     palletBoxsByForklift, argvGroup, carryOpt, carryCmd \
         = __parseCmdArgvForCarryOpt(_origArgv, cntrOptStratIndex)
     exitCode, txt = __matchProcess(
@@ -93,6 +101,7 @@ class Action(Enum):
     HELP = auto()
     NEEDHELP = auto()
     EDIT = auto()
+    CNTRCOMMAND = auto()
     LIST = auto()
     HOST = auto()
     CNTR = auto()
@@ -117,6 +126,10 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[Action, str, str, int]:
         nextIdx += 1
         isNeedHelp = False
         action = Action.EDIT
+    elif argvLength == 2 and argv_[1] == 'cntrCommand':
+        nextIdx += 1
+        isNeedHelp = False
+        action = Action.CNTRCOMMAND
     elif argvLength > 2:
         isListSubCmd = False
         isHasInstance = False
@@ -220,10 +233,6 @@ def __matchProcess(
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    errMsg = __checkEnvConfigXxBase(envConfig)
-    if errMsg is not None:
-        return 1, errMsg
-
     runConfig = {
         'cntrCommand': {
             'value': envConfig['cntrCommand'],
