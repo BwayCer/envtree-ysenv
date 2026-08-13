@@ -52,7 +52,7 @@ __forklift = 'forklift'
 # `__envConfigPath` 文件預設處理的項目, 其餘依
 # `__mergeGroup()` 的預設方式處理.
 __fieldOfString = {'name', 'image', 'vmhome', 'workdir', 'cpus', 'memory'}
-__fieldOfBoolean = {'daemon', 'pwdir'}
+__fieldOfBoolean = {'daemon', 'ysenv', 'pwdir'}
 __fieldOfArray = {'env', 'volume', 'rc'}
 # __allowArgvOverwriteField 是 `_origArgv` 需要合併處理的項目.
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
@@ -382,6 +382,16 @@ def __getGroupDetails(
         # 如果有 `name` 欄位則會自動產生或覆寫 `hostname` 欄位.
         if 'name' in newInfo:
             newInfo['hostname'] = newInfo['name']
+
+        if 'ysenv' in newInfo:
+            del newInfo['ysenv']
+            __mergeGroup(newInfo, 'default', {
+                'env': [f'YSENV_CONFIG_PATH=/tmp/ysenv-config.yaml'],
+                'volume': [
+                    f'{_fileDir}/{_filename}:/usr/local/bin/ysenv:ro',
+                    f'{__envConfigPath}:/tmp/ysenv-config.yaml:ro',
+                ],
+            })
 
         if 'pwdir' in newInfo:
             info = newInfo['pwdir']
