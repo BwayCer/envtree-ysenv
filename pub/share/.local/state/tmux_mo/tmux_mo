@@ -1,0 +1,185 @@
+#!/bin/env bash
+# tmux 風格管理器
+
+# [[USAGE]] <風格文件 ...>
+# [[SUBCMD]]
+#   list_style    列出風格文件.
+#   list_config   列出當前設定選項.
+# [[OPT]]
+#   -s, --show   只顯示設定命令. (沒有執行)
+#   -h, --help   幫助.
+
+# [[OPT]]
+#   -g           顯示全域選項.
+#   -s           顯示 session 選項.
+f   -w           顯示 window 選項.
+#   -h, --help   幫助.
+
+
+set -euo pipefail
+
+
+BR="
+"
+
+FILEPATH=`realpath "$0"`
+FILENAME=`basename "$FILEPATH"`
+DIRNAME=`dirname "$FILEPATH"`
+
+
+CONF_FILE_DIR_PATH="$DIRNAME/config"
+HAS_CONF_CONTENT=false
+CONF_TMP_FILE="$(mktemp "/tmp/tmux_mo_XXXXXX.conf")"
+
+
+main() {
+  local subCmd=""
+  local opt_show=0
+
+  case "${1:- }" in
+    list_style | list_config )
+      subCmd="$1"
+      shift
+      "sub_$subCmd" "$@"
+      return
+      ;;
+  esac
+
+  while [ -n "y" ]
+  do
+    case "${1:- }" in
+      -s | --show )
+        opt_show=1
+        shift
+        ;;
+      -h | --help ) sed -n "2,11p" "$FILEPATH" && exit ;;
+      * ) break ;;
+    esac
+  done
+
+  local default_args=(default.conf base_status.args.sh L2)
+  local args
+  if [[ $# == 0 ]]; then
+    args=("${default_args[@]}")
+  elif [[ $# == 1 && "$1" =~ ^(L1|L2|L3|L8|L9)$ ]]; then
+    args=(default.conf base_status.args.sh "$1")
+  else
+    args=("$@")
+  fi
+
+  write_conf_file_tmp_file "${args[@]}"
+  $HAS_CONF_CONTENT || write_conf_file_tmp_file "${default_args[@]}"
+
+  if [ $opt_show -eq 0 ]; then
+    tmux source-file "$CONF_TMP_FILE"
+  else
+    cat "$CONF_TMP_FILE"
+  fi
+}
+
+write_conf_file_tmp_file() {
+  local args=("$@")
+
+  local idx len filePath
+  local current_cmd=""
+  local current_args=()
+  for ((idx=0, len=${#args[@]}; idx < len;)); do
+    # 取得當前命令 (結尾為 .sh 或 .conf)
+    current_cmd="${args[$idx]}"
+    idx=$((idx + 1))
+
+    # 第二層迴圈檢查直到遇到下一個 .sh 或 .conf
+    current_args=()
+    while [ $idx -lt $len ]; do
+      if [[ "${args[$idx]}" =~ \.(sh|conf)$ ]]; then
+        break
+      fi
+      current_args+=("${args[$idx]}")
+      idx=$((idx + 1))
+    done
+
+    filePath="$CONF_FILE_DIR_PATH/$current_cmd"
+    # !("$current_cmd" =~ \.(sh|conf)$ && -f "$filePath")
+    if [[ ! -f "$filePath" ]]; then
+      error_log "找不到 \"$filePath\" 文件."
+      continue
+    fi
+
+    # 執行當前命令
+    HAS_CONF_CONTENT=true
+    echo -e "\n## > file: $filePath ---\n" >> "$CONF_TMP_FILE"
+    case "$filePath" in
+      *.conf )
+        cat "$filePath" >> "$CONF_TMP_FILE"
+        ;;
+      *.args.sh )
+        "$filePath" "${current_args[@]}" >> "$CONF_TMP_FILE"
+        ;;
+      *.sh )
+        "$filePath" >> "$CONF_TMP_FILE"
+        ;;
+    esac
+    echo "" >> "$CONF_TMP_FILE"
+  done
+}
+
+
+sub_list_style() {
+  cd "$CONF_FILE_DIR_PATH"
+  find . -maxdepth 1 -type f | sed "s/^\.\///"
+}
+
+
+sub_list_config() {
+  local opt_scope=""
+
+  while [ -n "y" ]
+  do
+    case "${1:- }" in
+      -g | -s | -w )
+        opt_scope="$1"
+        shift
+        ;;
+      -h | --help ) sed -n "12,16p" "$FILEPATH" && exit ;;
+      * ) break ;;
+    esac
+  done
+
+  show_tmux_options "show-options" "$opt_scope"
+  if [[ "$opt_scope" =~ ^(|-g)$ ]]; then
+    show_tmux_options "show-window-options" "$opt_scope"
+  fi
+}
+
+show_tmux_options() {
+  local opt_target="$1"
+  local scope="$2"
+
+  local line
+  local cmd_list=("tmux" "$opt_target" "$scope")
+  echo ">> ${cmd_list[*]} ---"
+  while read line; do printf "  %s\n" "$line"; done <<< `"${cmd_list[@]}"`
+  echo
+}
+
+
+log() {
+  local msg="$1"
+  local format="[$FILENAME]: %s$BR"
+  printf "$format" "$msg"
+}
+
+error_log() {
+  local msg="$1"
+  log "$msg" >&2
+}
+
+
+exit_trap() {
+  [ -f "$CONF_TMP_FILE" ] && rm "$CONF_TMP_FILE" || :
+}
+
+
+trap exit_trap EXIT
+
+main "$@"

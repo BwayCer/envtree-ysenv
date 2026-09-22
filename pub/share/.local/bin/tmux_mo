@@ -1,0 +1,5 @@
+#!/bin/env sh
+FILEPATH=`realpath "$0"`
+DIRNAME=`dirname "$FILEPATH"`
+APP_DIR="$(realpath "$DIRNAME/../state/tmux_mo")"
+"$APP_DIR/tmux_mo" "$@"
