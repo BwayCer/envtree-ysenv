@@ -1,0 +1,41 @@
+#!/bin/env bash
+
+## zh_TW ##
+
+export LANG=zh_TW.UTF-8
+export LC_TIME=en_US.UTF-8
+
+
+## 命令歷史 ##
+
+# 緩存歷史 (當前 bash) 的儲存量
+export HISTSIZE=1000
+# 歷史文件的儲存量
+export HISTFILESIZE=3000
+export HISTCONTROL=ignoredups:ignorespace:erasedups
+  # ignoredups: 忽略連續相同的命令.
+  # ignorespace: 忽略以空白開頭的命令.
+  # erasedups: 刪除緩存歷史中相同命令後再儲存到歷史文件.
+# 忽略命令
+export HISTIGNORE="&:* --help:* --version:* -[hv]:exit"
+HISTIGNORE+=":source ~/.bashrc"
+HISTIGNORE+=":[bf]g *:jobs"
+HISTIGNORE+=":bash"
+HISTIGNORE+=":ls:ll:vi"
+HISTIGNORE+=":ps aux:btop"
+HISTIGNORE+=":docker rmi *"
+HISTIGNORE+=":ys.backup_duskul11 snapshot remove *"
+HISTIGNORE+=":gemini"
+# 跟蹤命令的執行時間
+export HISTTIMEFORMAT="%F %T "
+
+
+## 原生命令 ##
+
+alias lsblk.df="lsblk -o NAME,LABEL,FSTYPE,SIZE,FSAVAIL,FSUSE%,MOUNTPOINTS"
+alias lsblk.mount="lsblk -o NAME,LABEL,FSTYPE,FSVER,UUID,MAJ:MIN,RM,RO,TYPE,MOUNTPOINTS"
+
+
+## 桌面系統 ##
+
+alias open="xdg-open"
