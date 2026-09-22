@@ -1,0 +1,1 @@
+../../../state/tmux_mo/tmux_mo.completion.bash
