@@ -1,7 +1,8 @@
 ---
-# 用戶文件根目錄. (把文件放於同一目錄下, 以鏈結的方式建立環境)
-ysPath: ~/ys
-groupParts:
+# 容器的執行命令
+cntrCommand: podman # docker
+
+palletBoxs:
   <自定義名稱>:
     volume:
       # 路徑需以絕對路徑表示, 但可以使用 `~/` 為開頭.
@@ -22,30 +23,28 @@ groupParts:
 
     ## 特殊 docker run 選項]
     # 設定 `volume` 中容器 `~/` 家目錄的路徑, 未設定的話會自動由容器內讀取(需要點時間).
-    vmHome: /home/bwaycer
+    vmhome: /home/bwaycer
     # 取消預設使用的 `--rm`.
     notOnce: true
     # 設定容器名稱並同時設定 `--hostname`.
     name: <容器名稱>
-    # 掛載 "/var/run/docker.sock"
-    dock: true
 
-host:
+hosts:
   <自定義名稱>:
-    # 將嵌入 groupParts 的設定選項
-    groupParts:
-      - <groupParts 下的欄位>
+    # 將嵌入 palletBoxs 的設定選項
+    palletBoxs:
+      - <palletBoxs 下的欄位>
 
-    # 其他和 groupParts 可定義的選項相同, 但屬於 docker 的會被忽略.
+    # 其他和 palletBoxs 可定義的選項相同, 但屬於 docker 的會被忽略.
     # 所有欄位皆是可選的但最後至少要有個 `volume` 或 `rc` 欄位.
 
-docker:
+cntrs:
   <自定義名稱>:
-    groupParts:
-      - <groupParts 下的欄位>
+    palletBoxs:
+      - <palletBoxs 下的欄位>
 
     # docker 一定要有 `image` 欄位
     image: local/mizuarch
 
-    # 其他和 groupParts 可定義的選項相同
+    # 其他和 palletBoxs 可定義的選項相同
 ...

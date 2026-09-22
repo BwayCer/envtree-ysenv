@@ -1,6 +1,7 @@
 #!/bin/env python3
 
 from typing import Callable
+from enum import Enum, auto
 import hashlib
 import os
 import random
@@ -9,65 +10,110 @@ import sys
 import yaml
 
 
-_origArgv = sys.argv
-_fileDir = os.path.dirname(os.path.abspath(__file__))
-_filename = os.path.basename(__file__)
+def pathJoin(root: str, *args: tuple[str, ...]) -> str:
+    '把路徑依平台分隔符重新組合.'
+    pathParts = []
+    for thePath in args:
+        for part in thePath.split('/'):
+            pathParts.append(part)
+    return os.path.normpath(os.path.join(root, *pathParts))
+
 
 helpTxt = '''\
 環境設定文件解析器
 Usage:
-    edit
-    list <host|docker>
-    list <host|docker> [實例] [... docker opt]
+    edit [ViCommand]
+    cntrCommand
+    list <pallet|host|cntr>
     host <實例>
-    docker <實例>
+    cntr <實例> [... docker opt]
 Opt:
   -h, --help   幫助.
 '''
 
+_fileDir = os.path.dirname(os.path.abspath(__file__))
+_filename = os.path.basename(__file__)
+
+_origArgv = sys.argv
+
 __hostHome = os.environ['HOME']
 __pwd = os.environ['PWD']
 
-__baseErrMsg = '環境設定文件格式不正確.'
+__envConfigPath = os.environ.get('YSENV_CONFIG_PATH') \
+    or pathJoin(__hostHome, 'ys', 'envfile', 'config.yaml')
 
-__fieldOfString = {'name', 'image', 'vmHome', 'workdir'}
-__fieldOfBoolean = {'notOnce', 'dock'}
-__fieldOfArray = {'volume', 'rc'}
+__viCommand = 'vi'
+
+__baseErrMsg = '環境設定文件不正確.'
+__argvErrMsg = '參數設定不正確.'
+
+__forklift = 'forklift'
+# __fieldOfString, __fieldOfBoolean, __fieldOfArray 的項目是
+# `__envConfigPath` 文件預設處理的項目, 其餘依
+# `__mergeGroup()` 的預設方式處理.
+__fieldOfString = {'name', 'image', 'vmhome', 'workdir', 'cpus', 'memory'}
+__fieldOfBoolean = {'daemon', 'pwdir'}
+__fieldOfArray = {'env', 'volume', 'rc'}
+# __allowArgvOverwriteField 是 `_origArgv` 需要合併處理的項目.
 __allowArgvOverwriteField = __fieldOfString ^ __fieldOfBoolean
 
+__vmNameFormat = 'V{RAND}-vm'
 __randList26 = 'abcdefghijklmnopqrstuvxwyz'
 
 
 def main():
-    envConfigPath = pathJoin(_fileDir, './config.yaml')
+    action, groups, instance, cntrOptStratIndex = __parseCmdArgv(_origArgv)
 
-    action, groups, instance, dockerOptStratIndex = __parseCmdArgv(_origArgv)
-
-    if action == 'Help' or action == 'NeedHelp':
+    if action == Action.HELP or action == Action.NEEDHELP:
         sysPrintExit(0 if action == 'Help' else 1, helpTxt)
 
-    if action == 'Edit':
-        sysPrintExit(0, f'vi {envConfigPath!r}')
-    elif not os.path.exists(envConfigPath):
+    if action == Action.EDIT:
+        viCommand = \
+            _origArgv[cntrOptStratIndex] \
+            if len(_origArgv) > cntrOptStratIndex \
+            else __viCommand
+        confirmAndExec(f'{viCommand} {__envConfigPath!r}')
+    elif not os.path.exists(__envConfigPath):
         sysPrintExit(1, f'請先 `{_filename} edit` 編輯環境設定文件.')
 
-    exitCode, envConfig = loadConfig(envConfigPath)
+    exitCode, envConfig = loadConfig(__envConfigPath)
     if exitCode != 0:
         sysPrintExit(exitCode, envConfig)
 
-    argvGroup, carryOpt, carryCmd \
-        = __parseCmdArgvForCarryOpt(_origArgv, dockerOptStratIndex)
+    errMsg = __checkEnvConfigXxBase(envConfig)
+    if errMsg is not None:
+        sysPrintExit(1, errMsg)
+
+    if action == Action.CNTRCOMMAND:
+        sysPrintExit(0, envConfig['cntrCommand'])
+
+    palletBoxsByForklift, argvGroup, carryOpt, carryCmd \
+        = __parseCmdArgvForCarryOpt(_origArgv, cntrOptStratIndex)
     exitCode, txt = __matchProcess(
         envConfig,
         action, groups, instance,
-        argvGroup, carryOpt, carryCmd,
+        palletBoxsByForklift, argvGroup, carryOpt, carryCmd,
     )
-    sysPrintExit(exitCode, txt)
+
+    if exitCode != 0 or action == Action.LIST:
+        sysPrintExit(exitCode, txt)
+    else:
+        confirmAndExec(txt)
 
 
-def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
+class Action(Enum):
+    HELP = auto()
+    NEEDHELP = auto()
+    EDIT = auto()
+    CNTRCOMMAND = auto()
+    LIST = auto()
+    HOST = auto()
+    CNTR = auto()
+
+
+def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[Action, str, str, int]:
     isNeedHelp = True
-    action = ''
+    action = Action.HELP
     groups = ''
     instance = ''
     nextIdx = 1
@@ -78,11 +124,16 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
 
     argvLength = len(argv_)
     if '-h' in argv_ or '--help' in argv_:
-        action = 'Help'
-    elif argvLength == 2 and argv_[1] == 'edit':
+        isNeedHelp = False
+        action = Action.HELP
+    elif 2 <= argvLength and argvLength <= 3 and argv_[1] == 'edit':
         nextIdx += 1
         isNeedHelp = False
-        action = 'Edit'
+        action = Action.EDIT
+    elif argvLength == 2 and argv_[1] == 'cntrCommand':
+        nextIdx += 1
+        isNeedHelp = False
+        action = Action.CNTRCOMMAND
     elif argvLength > 2:
         isListSubCmd = False
         isHasInstance = False
@@ -97,10 +148,20 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
 
         groups_ = argv_[nextIdx]
         match groups_:
-            case 'host' | 'docker' if isListSubCmd or isHasInstance:
+            case 'pallet' if isListSubCmd:
                 isNeedHelp = False
                 nextIdx += 1
-                action = 'List' if isListSubCmd else 'Build'
+                action = Action.LIST
+                groups = 'palletBoxs'
+
+            case 'host' | 'cntr' if isListSubCmd or isHasInstance:
+                isNeedHelp = False
+                nextIdx += 1
+                action = (
+                    Action.LIST if isListSubCmd
+                    else Action.HOST if groups_ == 'host'
+                    else Action.CNTR
+                )
                 groups = groups_ + 's'
 
                 if isHasInstance:
@@ -108,7 +169,7 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
                     instance = instance_
 
     if isNeedHelp:
-        action = 'NeedHelp'
+        action = Action.NEEDHELP
 
     return action, groups, instance, nextIdx
 
@@ -116,10 +177,11 @@ def __parseCmdArgv(argv: tuple[str, ...]) -> tuple[str, str, str, int]:
 def __parseCmdArgvForCarryOpt(
     argv: tuple[str, ...],
     startIdx: int,
-) -> tuple[dict, list, list]:
+) -> tuple[list, dict, list, list]:
     idx = startIdx
     length = len(argv)
 
+    palletBoxsByForklift = []
     argvGroup = {}
     carryOpt = []
     carryCmd = []
@@ -137,7 +199,9 @@ def __parseCmdArgvForCarryOpt(
                 value = argv[idx]
 
             itemKey = item[2:] if item.startswith('--') else item
-            if itemKey in __allowArgvOverwriteField:
+            if itemKey == __forklift:
+                palletBoxsByForklift.append(value)
+            elif itemKey in __allowArgvOverwriteField:
                 argvGroup[itemKey] = value
             elif isHasValue:
                 carryOpt += [item, value]
@@ -149,7 +213,7 @@ def __parseCmdArgvForCarryOpt(
             carryCmd += argv[idx:length]
             break
 
-    return argvGroup, carryOpt, carryCmd
+    return palletBoxsByForklift, argvGroup, carryOpt, carryCmd
 
 
 def loadConfig(filePath: str) -> tuple[int, str]:
@@ -165,16 +229,20 @@ def loadConfig(filePath: str) -> tuple[int, str]:
 
 def __matchProcess(
     envConfig: dict,
-    action: str,
+    action: Action,
     groupListName: str,
     instanceName: str,
+    palletBoxsByForklift: list,
     argvGroup: dict,
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    errMsg = __checkEnvConfigXxBase(envConfig)
-    if errMsg is not None:
-        return 1, errMsg
+    runConfig = {
+        'cntrCommand': {
+            'value': envConfig['cntrCommand'],
+            'from': 'envConfig',
+        },
+    }
 
     groups = envConfig[groupListName]
     groupsKeys = groups.keys()
@@ -188,41 +256,44 @@ def __matchProcess(
             f'找不到 "{instanceName}" 實例. (允許值: {", ".join(groupsKeys)})'
         )
 
-    # `os.path.expanduser()` 只接受 `~` 無法辨別 `$HOME`.
-    ysPath = os.path.expanduser(envConfig['ysPath'])
-
     instanceId = f'{groupListName}.{instanceName}'
-    exitCode, info \
-        = __getGroupDetails(ysPath, envConfig, groupListName, instanceName, argvGroup)
+    exitCode, info = __getGroupDetails(
+        runConfig, envConfig,
+        groupListName, instanceName, palletBoxsByForklift, argvGroup,
+    )
     if exitCode != 0:
         return 1, info
 
-    return (
-        __listGroupDetails if action == 'List'
-        else __listHostCmd if groupListName == 'hosts'
-        else __listDockerRunCmd
-    )(instanceId, ysPath, info, carryOpt, carryCmd)
+    match action:
+        case Action.LIST:
+            handler = __listGroupDetails
+        case Action.HOST:
+            handler = __listHostCmd
+        case Action.CNTR:
+            handler = __listCntrRunCmd
+
+    return handler(runConfig, instanceId, info, carryOpt, carryCmd)
 
 
 def __checkEnvConfigXxBase(envConfig: dict) -> [None | str]:
     level01Type = {
-        'ysPath': str,
-        'groupParts': dict,
+        'cntrCommand': str,
+        'palletBoxs': dict,
         'hosts': dict,
-        'dockers': dict,
+        'cntrs': dict,
     }
     for key, val in level01Type.items():
         if key not in envConfig or not isinstance(envConfig[key], val):
             return f'{__baseErrMsg} ("{key}" 欄位遺失或格式錯誤)'
 
 
-def __checkEnvConfigXxMergeGroupParts(
+def __checkEnvConfigXxMergePalletBoxs(
     instanceId: str,
     mergeItems: object,
     allowList: list,
 ) -> [None | str]:
     if not isinstance(mergeItems, list):
-        return f'{__baseErrMsg} ({instanceId} 的 "groups" 欄位格式必須為 `Array`.)'
+        return f'({instanceId} 的 "groups" 欄位格式必須為 `Array`.)'
 
     allowList = set(allowList)
     mergeItems = set(mergeItems)
@@ -231,42 +302,56 @@ def __checkEnvConfigXxMergeGroupParts(
     notExistGroups = list(map(str, mergeItems - allowList))
     if len(notExistGroups) > 0:
         return (
-            f'{__baseErrMsg} ("{instanceId}" 有不存在的'
-            f' "{'", "'.join(notExistGroups)}" 群組)'
+            f'("{instanceId}" 有不存在的 "{'", "'.join(notExistGroups)}" 群組)'
         )
 
 
 def __getGroupDetails(
-    ysPath: str,
+    runConfig: dict,
     envConfig: dict,
     instanceListName: str,
     instanceName: str,
+    palletBoxsByForklift: list,
     argvGroup: dict,
 ) -> tuple[int, [str | dict]]:
-    groupParts = envConfig['groupParts']
+    palletBoxs = envConfig['palletBoxs']
     instance = envConfig[instanceListName][instanceName]
     instanceId = f'{instanceListName}.{instanceName}'
 
     if not isinstance(instance, dict):
         return 1, f'找不到 "{instanceId}" 實例. (未設定選項)'
 
-    if 'groupParts' in instance:
-        mergeParts = instance['groupParts']
-        errMsg = __checkEnvConfigXxMergeGroupParts(
-            instanceId, mergeParts, groupParts.keys(),
+    allowPalletBoxs = palletBoxs.keys()
+    palletBoxsByForkliftSet = set(palletBoxsByForklift)
+    pickPalletBoxs = []
+
+    if 'palletBoxs' in instance:
+        palletBoxsByInstance = instance['palletBoxs']
+        errMsg = __checkEnvConfigXxMergePalletBoxs(
+            instanceId, palletBoxsByInstance, allowPalletBoxs,
         )
         if errMsg is not None:
-            return 1, errMsg
+            return 1, f'{__baseErrMsg} {errMsg}'
+        pickPalletBoxs += [
+            item for item in palletBoxsByInstance
+            if item not in palletBoxsByForkliftSet
+        ]
 
-        mergeItems = \
-            [[f'groupParts.{item}', groupParts[item]] for item in mergeParts] \
-            + [['instance', instance]]
-    else:
-        mergeItems = [['instance', instance]]
+    if len(palletBoxsByForklift) > 0:
+        errMsg = __checkEnvConfigXxMergePalletBoxs(
+            f'--{__forklift}', palletBoxsByForklift, allowPalletBoxs,
+        )
+        if errMsg is not None:
+            return 1, f'{__argvErrMsg} {errMsg}'
+        pickPalletBoxs += [item for item in palletBoxsByForklift]
 
-    mergeItems += [['argv', argvGroup]]
+    mergeItems = [
+        [f'palletBoxs.{item}', palletBoxs[item]]
+        for item in pickPalletBoxs
+    ] + [['instance', instance], ['argv', argvGroup]]
 
     newInfo = {}
+
     for item in mergeItems:
         theId = item[0]
         theInfo = item[1]
@@ -279,26 +364,38 @@ def __getGroupDetails(
             return 1, f'{__baseErrMsg} ({instanceId} 的 {errMsg})'
 
     vmHome = ''
-    if instanceListName == 'dockers':
+    if instanceListName == 'cntrs':
         if 'image' not in newInfo:
             return 1, f'{__baseErrMsg} ({instanceId} 找不到指定映像文件)'
 
-        # 在 dockers 的 instance 中設定 `vmHome` 欄位.
-        if 'vmHome' not in newInfo:
-            vmHome = __getDockerContainerHomePath(
+        # 在 cntrs 的 instance 中設定 `vmhome` 欄位.
+        if 'vmhome' in newInfo:
+            vmHome = newInfo['vmhome']['value']
+        else:
+            vmHome = __getCntrContainerHomePath(
+                runConfig['cntrCommand']['value'],
                 newInfo['image']['value'],
                 user=newInfo['user']['value'] if 'user' in newInfo else None,
             )
-            newInfo['vmHome'] = {'value': vmHome, 'from': 'via container'}
-
-        cwdDir = __pwd + os.path.sep
-        ysDir = ysPath + os.path.sep
-        if 'workdir' not in newInfo and cwdDir.startswith(ysDir):
-            newInfo['workdir'] = {'value': __pwd, 'from': 'default'}
+            newInfo['vmhome'] = {'value': vmHome, 'from': 'via container'}
 
         # 如果有 `name` 欄位則會自動產生或覆寫 `hostname` 欄位.
         if 'name' in newInfo:
             newInfo['hostname'] = newInfo['name']
+
+        if 'pwdir' in newInfo:
+            info = newInfo['pwdir']
+            del newInfo['pwdir']
+
+            if info['value'] is True:
+                origFromId = info['from']
+                theId = f'{origFromId}.pwdir'
+                thePath = __expanduserRev(__pwd)
+                __mergeGroup(newInfo, theId, {
+                    'volume': [f'{thePath}:{thePath}'],
+                    'workdir': __pwd,
+                })
+
 
     elif instanceListName == 'hosts':
         if not ('volume' in newInfo or 'rc' in newInfo):
@@ -314,13 +411,17 @@ def __getGroupDetails(
     return 0, newInfo
 
 
+def __expanduserRev(path: str) -> bool:
+    return path.replace(__hostHome, '~', 1) if path.startswith(__hostHome) else path
+
+
 def __isList(obj: object) -> bool:
     return isinstance(obj, list)
 
 
 def __mergeGroup(info: dict, srcId: str, src: dict) -> [None | str]:
     errMsg = '"{}" 欄位格式必須為 `{}`'
-    skipList = {'groupParts'}
+    skipList = {'palletBoxs'}
     for key, val in src.items():
         if key in skipList:
             pass
@@ -412,7 +513,8 @@ def __sortVolumeKey(item: dict) -> int:
     return len(item['vmPath'])
 
 
-def __getDockerContainerHomePath(
+def __getCntrContainerHomePath(
+    cntrCommand: str,
     image: str,
     user: [None | str],
 ) -> dict:
@@ -422,12 +524,13 @@ def __getDockerContainerHomePath(
     `--rm` 會使 `docker run` 退出時花一段時間，具體秒數約 0~6 秒不等
     '''
 
-    dockerCmdList = ['docker', 'run', '--rm']
+    cmdList = [cntrCommand, 'run', '--rm']
 
     if user is not None:
-        dockerCmdList += ['--user', user]
+        cmdList += ['--user', user]
 
-    cmdList = dockerCmdList.copy() + [image, 'sh', '-c', 'echo $HOME']
+    cmdList += [image, 'sh', '-c', 'echo $HOME']
+
     # `capture_output=True`:
     #   相當於同時設定了 `stdout=subprocess.PIPE` 和
     #   `stderr=subprocess.PIPE` 用於捕獲命令的標準輸出和標準錯誤, 並通过
@@ -461,24 +564,25 @@ def __getRcTxt(
 
 
 def __listGroupDetails(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    skipList = {'image', 'vmHome', 'workdir', 'notOnce', 'volume', 'rc'}
-    isDocker = instanceId.startswith('dockers.')
+    skipList = {'image', 'vmhome', 'workdir', 'daemon', 'volume', 'rc'}
+    isCntr = instanceId.startswith('cntrs.')
 
-    showMsgs = [f'ysPath : {ysPath}']
+    showMsgs = [
+        f'{key:6s}: {runConfig[key]['value']}   (by {runConfig[key]['from']})'
+        for key in runConfig
+    ]
 
-    if isDocker:
+    if isCntr:
         showMsgs += [
-            f'{key:7s}: {info[key]['value']}   (by {info[key]['from']})'
-            for key in ['vmHome', 'workdir']
-        ] + [
-            f'{key}: {info[key]['value']}   (by {info[key]['from']})'
-            for key in ['image']
+            f'{key:6s}: {info[key]['value'] or '(empty)'}   (by {info[key]['from']})'
+            for key in ['vmhome', 'workdir', 'image']
+            if key in info
         ]
 
         if len(carryOpt):
@@ -490,13 +594,13 @@ def __listGroupDetails(
 
         showMsgs += ['']
 
-    if isDocker:
+    if isCntr:
         showMsgs += ['Set option:']
 
         showMsgs += [
             '  --rm   (by default)'
-            if 'notOnce' not in info or info['notOnce']['value'] is not True
-            else f'  #notOnce   (by {info['notOnce']['from']})'
+            if 'daemon' not in info or info['daemon']['value'] is not True
+            else f'  #NotRmFlag   (by {info['daemon']['from']})'
         ]
 
         if '-it' not in carryOpt:
@@ -508,7 +612,7 @@ def __listGroupDetails(
 
             if isinstance(val, list):
                 showMsgs += [
-                    f'   --{key} = {subVal['value']}   (by {subVal['from']})'
+                    f'  --{key} = {subVal['value']}   (by {subVal['from']})'
                     for subVal in val
                 ]
             else:
@@ -558,8 +662,8 @@ def __listGroupDetails(
 
 
 def __listHostCmd(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
@@ -574,16 +678,21 @@ def __listHostCmd(
             hostPath = item['hostPath']
             vmPath = item['vmPath']
 
+            if os.path.exists(vmPath):
+                if hostPath == vmPath:
+                    continue
+
+                if not os.path.islink(vmPath):
+                    exitCode = 1
+                    warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
+                    continue
+
             vmDir = os.path.dirname(vmPath)
             if not os.path.exists(vmDir) and vmDir not in newCreateDir:
                 cmdLines += [f'mkdir -p {vmDir!r}']
                 newCreateDir.append(vmDir)
 
-            if not os.path.exists(vmPath) or os.path.islink(vmPath):
-                cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
-            else:
-                exitCode = 1
-                warnLines += [f'echo "請刪除 {vmPath!r} 文件路徑"']
+            cmdLines += [f'ln -sfn {hostPath!r} {vmPath!r}']
 
     isHasRcField = 'rc' in info
     if isHasRcField:
@@ -610,19 +719,19 @@ def __listHostCmd(
     )
 
 
-def __listDockerRunCmd(
+def __listCntrRunCmd(
+    runConfig: dict,
     instanceId: str,
-    ysPath: str,
     info: dict,
     carryOpt: list,
     carryCmd: list,
 ) -> tuple[int, str]:
-    cmdList = ['docker', 'run']
-    skipList = {'image', 'vmHome', 'notOnce', 'dock', 'volume', 'rc'}
+    cmdList = [runConfig['cntrCommand']['value'], 'run']
+    skipList = {'image', 'vmhome', 'daemon', 'volume', 'rc'}
     image = info['image']['value']
 
     if (
-        ('notOnce' not in info or info['notOnce']['value'] is not True)
+        ('daemon' not in info or info['daemon']['value'] is not True)
         and '--rm' not in carryOpt
     ):
         cmdList += ['--rm']
@@ -631,7 +740,9 @@ def __listDockerRunCmd(
         cmdList += ['-it']
 
     # 自動設定 `name`, `hostname`
-    vmName = ''.join(random.choices(__randList26, k=7)) + '-vm'
+    vmName = __vmNameFormat.replace(
+        '{RAND}', ''.join(random.choices(__randList26, k=6)),
+    )
     if 'name' not in info:
         cmdList += ['--name', vmName]
     if 'hostname' not in info:
@@ -643,18 +754,18 @@ def __listDockerRunCmd(
 
         if isinstance(val, list):
             for subVal in val:
-                cmdList += [f'--{key}', subVal['value']]
+                cmdList += [f'--{key}', __printValue(subVal['value'])]
         else:
             cmdList += [f'--{key}']
             value = val['value']
             if not isinstance(value, bool):
-                cmdList += [value]
+                cmdList += [__printValue(value)]
 
-    volumeList = __getDockerRunVolumeList(ysPath, info)
+    volumeList = __getCntrRunVolumeList(info)
     for item in volumeList:
-        cmdList += ['--volume', item]
+        cmdList += ['--volume', __printValue(item)]
 
-    cmdList += carryOpt
+    cmdList += [__printValue(val) for val in carryOpt]
 
     cmdList += [image]
 
@@ -663,9 +774,15 @@ def __listDockerRunCmd(
 
     return 0, ' '.join(cmdList)
 
+def __printValue(value: str):
+    if ' ' in value:
+        return '{!r}'.format(value)
+    else:
+        return value
 
-def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
-    vmHome = info['vmHome']['value']
+
+def __getCntrRunVolumeList(info: dict) -> list[str]:
+    vmHome = info['vmhome']['value']
     volumeList = []
 
     if 'volume' in info:
@@ -681,15 +798,6 @@ def __getDockerRunVolumeList(ysPath: str, info: dict) -> list[str]:
         createRcTxt()
         volumeList += [f'{rcFilePath}:{vmHome}/{rcFileName}']
 
-    if 'dock' in info and info['dock']['value'] is True:
-        volumeList += ['/var/run/docker.sock:/var/run/docker.sock:ro']
-
-    volumeList += [f'{ysPath}:{ysPath}']
-
-    ysRealPath = os.path.realpath(ysPath)
-    if ysPath != ysRealPath:
-        volumeList += [f'{ysRealPath}:{ysRealPath}']
-
     return volumeList
 
 
@@ -698,13 +806,23 @@ def sysPrintExit(exitCode: int, txt: str):
     exit(exitCode)
 
 
-def pathJoin(root: str, *args: tuple[str, ...]) -> str:
-    '把路徑依平台分隔符重新組合.'
-    pathParts = []
-    for thePath in args:
-        for part in thePath.split('/'):
-            pathParts.append(part)
-    return os.path.normpath(os.path.join(root, *pathParts))
+def confirmAndExec(txt: str):
+    print("Shell Run:")
+    print(f"{txt}\n")
+
+    try:
+        choice = input('是否執行腳本？[y/N]: ').strip().lower()
+    except (KeyboardInterrupt, EOFError):
+        # ex: `Ctrl + C`, `kill -2 <PID>`
+        exit(130)
+
+    if choice in ['y', 'yes']:
+        try:
+            os.execvp('sh', ['sh', '-c', txt])
+        except Exception as e:
+            sysPrintExit(1, f"執行失敗: {e}")
+
+    exit(0)
 
 
 if __name__ == '__main__':
