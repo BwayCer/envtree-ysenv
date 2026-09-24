@@ -3,48 +3,70 @@
 cntrCommand: podman # docker
 
 palletBoxs:
-  <自定義名稱>:
+  # <自定義名稱>:
+    # volume:
+    #   # 路徑需以絕對路徑表示, 但可以使用 `~/` 為開頭.
+    #   # 掛載文件以 `~/` 開頭表示主機家目錄;
+    #   # 容器路徑以 `~/` 開頭表示容器家目錄.
+    #   - <掛載文件>:<容器路徑>[:權限]
+    #
+    # # 將被 .bashrc 執行
+    # rc:
+    #   - PATH+="$HOME/path/to/bin"
+    #   -
+    #   - for ((i=1; i <= 100; i++));
+    #   - do
+    #   -   echo $i
+    #   - done
+    #
+    # [... docker run 選項]
+    #
+    # ## 特殊 docker run 選項]
+    # # 設定 `volume` 中容器 `~/` 家目錄的路徑, 未設定的話會自動由容器內讀取(需要點時間).
+    # vmhome: /home/bwaycer
+    # # 取消預設使用的 `--rm`.
+    # notOnce: true
+    # # 設定容器名稱並同時設定 `--hostname`.
+    # name: <容器名稱>
+
+  share:
     volume:
-      # 路徑需以絕對路徑表示, 但可以使用 `~/` 為開頭.
-      # 掛載文件以 `~/` 開頭表示主機家目錄;
-      # 容器路徑以 `~/` 開頭表示容器家目錄.
-      - <掛載文件>:<容器路徑>[:權限]
-
-    # 將被 .bashrc 執行
-    rc:
-      - PATH+="$HOME/path/to/bin"
-      -
-      - for ((i=1; i <= 100; i++));
-      - do
-      -   echo $i
-      - done
-
-    [... docker run 選項]
-
-    ## 特殊 docker run 選項]
-    # 設定 `volume` 中容器 `~/` 家目錄的路徑, 未設定的話會自動由容器內讀取(需要點時間).
-    vmhome: /home/bwaycer
-    # 取消預設使用的 `--rm`.
-    notOnce: true
-    # 設定容器名稱並同時設定 `--hostname`.
-    name: <容器名稱>
+      - ~/ys/envfile/pub/share/.bash_profile:~/.bash_profile
+      - ~/ys/envfile/pub/share/.bashrc:~/.bashrc
+      - ~/ys/envfile/pub/share/.bashrc_aaa0_env:~/.bashrc_aaa0_env
+      - ~/ys/envfile/pub/share/.gitconfig:~/.gitconfig
+      - ~/ys/envfile/pub/share/.local/bin/PS777:~/.local/bin/PS777
+      - ~/ys/envfile/pub/share/.local/share/bash-completion/completions/git.bash:~/.local/share/bash-completion/completions/git.bash
+  shareBway:
+    volume:
+      # tmux_mo
+      - ~/ys/envfile/pub/share/.local/bin/tmux_mo:~/.local/bin/tmux_mo
+      - ~/ys/envfile/pub/share/.local/share/bash-completion/completions/tmux_mo.completion.bash:~/.local/share/bash-completion/completions/tmux_mo.bash
+      - ~/ys/envfile/pub/share/.local/state/tmux_mo:~/.local/state/tmux_mo
 
 hosts:
-  <自定義名稱>:
-    # 將嵌入 palletBoxs 的設定選項
-    palletBoxs:
-      - <palletBoxs 下的欄位>
+  # <自定義名稱>:
+    # # 將嵌入 palletBoxs 的設定選項
+    # palletBoxs:
+    #   - <palletBoxs 下的欄位>
+    #
+    # # 其他和 palletBoxs 可定義的選項相同, 但屬於 docker 的會被忽略.
+    # # 所有欄位皆是可選的但最後至少要有個 `volume` 或 `rc` 欄位.
 
-    # 其他和 palletBoxs 可定義的選項相同, 但屬於 docker 的會被忽略.
-    # 所有欄位皆是可選的但最後至少要有個 `volume` 或 `rc` 欄位.
+  tty:
+    palletBoxs:
+      - share
+      - shareBway
 
 cntrs:
-  <自定義名稱>:
-    palletBoxs:
-      - <palletBoxs 下的欄位>
+  # <自定義名稱>:
+    # palletBoxs:
+    #   - <palletBoxs 下的欄位>
+    #
+    # # docker 一定要有 `image` 欄位
+    # image: local/mizuarch
+    #
+    # # 其他和 palletBoxs 可定義的選項相同
 
-    # docker 一定要有 `image` 欄位
-    image: local/mizuarch
-
-    # 其他和 palletBoxs 可定義的選項相同
+  tty:
 ...
