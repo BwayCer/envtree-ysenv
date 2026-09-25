@@ -169,6 +169,6 @@ PS777_fnPromptCommand() {
 PROMPT_COMMAND=PS777_fnPromptCommand
 
 PS1=\
-'`tmpExitCode=\$?; type PS777 &> /dev/null'\
+'`tmpExitCode=$?; type PS777 &> /dev/null'\
 '   && PS777 "\u" "\h" "\w" "$tmpExitCode"'\
 '   || echo "[\u@\h \W]\$ "`'
