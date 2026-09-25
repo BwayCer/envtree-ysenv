@@ -15,12 +15,6 @@ PS777() {
   local ps1_w="$3"
   local exitCode=$4
 
-  # CPU Mem 使用量
-  cpuUsage=`top -b -n 1 | grep "Cpu(s)" | awk '{printf("%.0f\n"), $2 + $4 + $6}'`
-  memUsage=`free | awk '/Mem:/ {printf("%.0f\n"), $3/$2 * 100.0}'`
-  [ "$cpuUsage" -gt 85 ] || [ "$memUsage" -gt 85 ] &&
-    isHighUsage=true || isHighUsage=false
-
   # NOTE:
   # 很久前保留的一段描述
   #     We have color support; assume it's compliant with Ecma-48
@@ -95,45 +89,31 @@ PS777() {
   # exitCode
   [ $exitCode -eq 0 ] || printf " ${_fRedB}(exit:$exitCode)${_fN}"
 
-  # git 狀態
-  # NOTE
-  #   * `git status --porcelain` 耗費時間和文件數量(git status)成正比
+  # NOTE:
+  # git 狀態:
+  #   - 捨棄判斷是沒有 git 專案或 `git init` 的功能. 由
+  #     `git status` 改為 `git symbolic-ref` 和 `git rev-parse`
+  #     解決當未 commit 的文件數量過多時的耗時問題.
+  #   - `git status --porcelain` 耗費時間和文件數量 (git status) 成正比
   PS777_fnGitStatus() {
-    local tmp
-    local gitStatusTxt=`LC_ALL=C git status 2> /dev/null`
+    local curr_hash
+    curr_hash=$(git rev-parse --short HEAD 2> /dev/null)
+    [ $? -eq 0 ] || return
 
-    [ -n "$gitStatusTxt" ] || return
+    local color curr_branch
 
-    local color txtBranch
+    # `git symbolic-ref --short HEAD` 是
+    # `git branch --show-current` (v2.22.0 才支持) 底層的方法.
+    # 也可以使用 `git log --pretty=format:"%h" -1` 來代替.
+    curr_branch=$(git symbolic-ref --short HEAD 2> /dev/null)
+    [ $? -eq 0 ] || curr_branch="($curr_hash)"
 
-    if [ "`sed -n "3p" <<< "$gitStatusTxt"`" != "No commits yet" ]; then
-      git status --porcelain | grep -qE '^\s?[AMDR]' &&
-        color=$_fYelB || color=$_fCyaW
+    git status --porcelain | grep -qE '^\s?[AMDR]' &&
+      color=$_fYelB || color=$_fCyaW
 
-      # `git branch --show-current &> /dev/null` or `git log &> /devnull` 無法隱藏以下錯誤
-      # error(fatal: your current branch 'master' does not have any commits yet)
-      local currBranch
-      # git v2.22.0 才支持 `--show-current`
-      currBranch=`git branch --show-current 2> /dev/null`
-      [ $? -eq 0 ] || currBranch=`(
-        sed -n "1p" | grep "^On branch" | sed "s/^On branch \(.\+\)/\1/"
-      ) <<< "$gitStatusTxt"`
-      [ -n "$currBranch" ] \
-        && txtBranch="$currBranch" \
-        || txtBranch="(`git log --pretty=format:"%h" -1`)"
-    else
-      color=$_fN
-      txtBranch="---"
-    fi
-
-    printf " ${color}[git:$txtBranch]${_fN}"
+    printf " ${color}[git:$curr_branch]${_fN}"
   }
-  # 避免電腦當機時就不要算 `git status --porcelain` 來耗費時間
-  if $isHighUsage; then
-    printf " (noCheckGit)"
-  else
-    PS777_fnGitStatus
-  fi
+  PS777_fnGitStatus
 
   # 命令耗時
   if [ -n "$PS777_tmpVarCmdDuration" ]; then
