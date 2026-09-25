@@ -13,7 +13,7 @@ lt() { tree -CpugshD -I '.git/' "$@" | sed -E 's/(.+?── )?\[([^]]+)\]  (.+)/
 
 ## share 環境
 
-the_path="~/.local/bin"
+the_path="$HOME/.local/bin"
 [[ ":$PATH:" =~ ":$the_path:" ]] || PATH="$PATH:$the_path"
 unset the_path
 
