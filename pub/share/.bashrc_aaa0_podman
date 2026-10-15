@@ -1,0 +1,209 @@
+#!/bin/env bash
+
+# alias podman.image.ls='{
+#   echo -e "REPOSITORY\tTAG";
+#   podman image ls --format "{{.Repository}}\t{{.Tag}}";
+# } | column -ts $'"'\t'"
+alias podman.image.ls='
+  podman image ls --format "{{.Repository}}:{{.Tag}}" |
+  grep -v ":<none>" |
+  sort
+'
+
+
+# podman ps --format "{{json .}}"
+# podman ps --format "{{.Names}}:\t{{.Labels}}"
+# podman_ps:
+#   ID Names
+#   PodName Image Command
+#   State Status RunningFor AutoRemove Restarts
+#   Networks Ports
+#   Labels Mounts
+#   IsInfra ExposedPorts
+#   Namespaces
+#   ---
+#   FullCommand Aliases
+
+alias podman.ps='
+  podman_ps \
+    PodName Networks Status Restarts Image Command
+'
+alias podman.ps.all='
+  podman_ps -a \  \
+    PodName Networks Status Restarts Image Command
+'
+alias podman.ps.webnet='
+  podman_ps -N webnet \
+    PodName Networks Aliases
+'
+alias podman.ps.webnet-port='
+  podman_ps -N webnet \
+    PodName Networks Aliases Ports
+'
+# alias podman.ps.port_all='
+#   podman_ps -a \  Ports
+# '
+alias podman.ps.port_all="
+  podman ps --format '{{.Names}}\t{{.Ports}}' |
+    sed 's/, /\n \t/g' |
+    column -ts \$'"'\t'"'
+"
+alias podman.ps.label="
+  podman ps --format '"'{{.Names}}{{range $k,$v := .Labels}}\t{{$k}} = {{$v}}\n{{end}}'"' |
+    column -ts \$'"'\t'"'
+"
+alias podman.ps.status_all='
+  podman_ps -a \  AutoRemove Restarts RunningFor Status
+'
+alias podman.ps.command='
+  podman_ps Image FullCommand
+'
+alias podman.ps.mount="
+  podman ps --format '{{.Names}}' | while read -r name; do
+    podman inspect \$name --format \"\$name\t{{range .Mounts}}{{.Source}}\t→ {{.Destination}}{{\\\", \\\"}}{{end}}\"
+  done |
+    sed 's/, /\n \t/g' |
+    column -ts \$'"'\t'"'
+"
+
+podman_ps() {
+  # -t: 以 `\t`, ` ` 對齊上下文排列成表格
+  # -s: 指定 `-t` 的間隔符
+  __podman_ps_handler "$@" | column -ts $'\t'
+}
+__podman_ps_handler() {
+  local optList=()
+  local target_network=
+  while true; do
+    case "$1" in
+      -N | --filter-network )
+        target_network="$2"
+        optList+=(--filter "network=$target_network");
+        shift 2
+        ;;
+      -* )
+        shiftLength=1
+        optList+=("$1")
+        if [ "$2" == " " ]; then
+          shiftLength=2;
+        elif [ -n "$2" ]; then
+          shiftLength=2;
+          optList+=("$2");
+        fi
+        shift $shiftLength
+        ;;
+      * ) break ;;
+    esac
+  done
+
+  local args=("$@")
+
+  local idx len
+  local argsLen=${#args[@]}
+
+  printf "Names"
+  for ((idx=0; idx < $argsLen; idx++)); do
+    local val="${args[idx]}"
+    case "$val" in
+      PodName | Image | Command | \
+      State | Status | RunningFor | AutoRemove | Restarts | \
+      Networks | Ports | \
+      Labels | Mounts | \
+      IsInfra | ExposedPorts | \
+      Namespaces | \
+      Aliases )
+        printf "\t$val"
+        ;;
+      FullCommand )
+        printf "\tCommand"
+        ;;
+      * ) ;;
+    esac
+  done
+  echo
+
+  #  1 {{.ID}} {{.Names}}
+  #  3 {{.PodName}} {{.Image}} {{.Command}}
+  #  6 {{.State}} {{.Status}} {{.RunningFor}} {{.AutoRemove}} {{.Restarts}}
+  # 11 {{.Networks}} {{.Ports}}
+  # 13 {{.Labels}} {{.Mounts}}
+  # 15 {{.IsInfra}} {{.ExposedPorts}}
+  # 17 {{.Namespaces}}
+  # ---
+  # FullCommand
+  # {{.NetworkSettings.Networks.<Network>.Aliases}}
+  local formatTxt="{{.ID}}\t{{.Names}}\t{{.PodName}}\t{{.Image}}\t{{.Command}}\t{{.State}}\t{{.Status}}\t{{.RunningFor}}\t{{.AutoRemove}}\t{{.Restarts}}\t{{.Networks}}\t{{.Ports}}\t{{.Labels}}\t{{.Mounts}}\t{{.IsInfra}}\t{{.ExposedPorts}}\t {.Namespaces}}"
+  podman ps "${optList[@]}" --format "$formatTxt" | while read -r txt; do
+    # id=$(awk -F "\t" '{print $1}' <<< "$txt")
+    name=$(awk -F "\t" '{print $2}' <<< "$txt")
+    printf "$name"
+
+    for ((idx=0; idx < $argsLen; idx++)); do
+      local val="${args[idx]}"
+      local columnVal=NOT_ALLOW
+      case "$val" in
+        PodName )
+          columnVal=$(awk -F "\t" '{print $3}' <<< "$txt")
+          ;;
+        Image )
+          columnVal=$(awk -F "\t" '{print $4}' <<< "$txt")
+          ;;
+        Command )
+          columnVal=$(awk -F "\t" '{print $5}' <<< "$txt")
+          ;;
+        State )
+          columnVal=$(awk -F "\t" '{print $6}' <<< "$txt")
+          ;;
+        Status )
+          columnVal=$(awk -F "\t" '{print $7}' <<< "$txt")
+          ;;
+        RunningFor )
+          columnVal=$(awk -F "\t" '{print $8}' <<< "$txt")
+          ;;
+        AutoRemove )
+          columnVal=$(awk -F "\t" '{print $9}' <<< "$txt")
+          ;;
+        Restarts )
+          columnVal=$(awk -F "\t" '{print $10}' <<< "$txt")
+          ;;
+        Networks )
+          columnVal=$(awk -F "\t" '{print $11}' <<< "$txt")
+          ;;
+        Ports )
+          columnVal=$(awk -F "\t" '{print $12}' <<< "$txt")
+          ;;
+        Labels )
+          columnVal=$(awk -F "\t" '{print $13}' <<< "$txt")
+          ;;
+        Mounts )
+          columnVal=$(awk -F "\t" '{print $14}' <<< "$txt")
+          ;;
+        IsInfra )
+          columnVal=$(awk -F "\t" '{print $15}' <<< "$txt")
+          ;;
+        ExposedPorts )
+          columnVal=$(awk -F "\t" '{print $16}' <<< "$txt")
+          ;;
+        Namespaces )
+          columnVal=$(awk -F "\t" '{print $17}' <<< "$txt")
+          ;;
+        FullCommand )
+          columnVal=$(podman ps --filter "name=^$name$" --no-trunc --format "{{.Command}}")
+          ;;
+        Aliases )
+          if [ -n "$target_network" ]; then
+            columnVal=$(
+              podman container inspect "$name" --format \
+                  "{{if .NetworkSettings.Networks.$target_network}}{{
+                    join .NetworkSettings.Networks.$target_network.Aliases \", \"
+                  }}{{else}}N/A{{end}}"
+            )
+          fi
+          ;;
+        * ) ;;
+      esac
+      [ "$columnVal" == NOT_ALLOW ] || printf "\t${columnVal:- }"
+    done
+    echo
+  done
+}
