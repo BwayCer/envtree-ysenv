@@ -8,6 +8,9 @@ export LC_TIME=en_US.UTF-8
 
 ## 命令歷史 ##
 
+# Enable history appending instead of overwriting.
+shopt -s histappend
+
 # 緩存歷史 (當前 bash) 的儲存量
 export HISTSIZE=1000
 # 歷史文件的儲存量
@@ -18,14 +21,16 @@ export HISTCONTROL=ignoredups:ignorespace:erasedups
   # erasedups: 刪除緩存歷史中相同命令後再儲存到歷史文件.
 # 忽略命令
 export HISTIGNORE="&:* --help:* --version:* -[hv]:exit"
-HISTIGNORE+=":source ~/.bashrc"
+# HISTIGNORE+=":source ~/.bashrc"
 HISTIGNORE+=":[bf]g *:jobs"
 HISTIGNORE+=":bash"
-HISTIGNORE+=":ls:ll:vi"
-HISTIGNORE+=":ps aux:btop"
-HISTIGNORE+=":docker rmi *"
+HISTIGNORE+=":l[sla]"
+HISTIGNORE+=":vi:vim:nvim"
+HISTIGNORE+=":history:history *:!*"
+HISTIGNORE+=":ps aux:top:btop"
+HISTIGNORE+=":docker rmi *:podman rmi *"
 HISTIGNORE+=":ys.backup_duskul11 snapshot remove *"
-HISTIGNORE+=":gemini"
+HISTIGNORE+=":agy:antigravity"
 # 跟蹤命令的執行時間
 export HISTTIMEFORMAT="%F %T "
 
@@ -34,6 +39,13 @@ export HISTTIMEFORMAT="%F %T "
 
 alias lsblk.df="lsblk -o NAME,LABEL,FSTYPE,SIZE,FSAVAIL,FSUSE%,MOUNTPOINTS"
 alias lsblk.mount="lsblk -o NAME,LABEL,FSTYPE,FSVER,UUID,MAJ:MIN,RM,RO,TYPE,MOUNTPOINTS"
+
+
+## 習慣命令 ##
+
+# tmux 在 debian 要加上 -2 才支援顏色
+alias tmux="tmux -2"
+alias tmux.at="tmux a -t"
 
 
 ## 桌面系統 ##
